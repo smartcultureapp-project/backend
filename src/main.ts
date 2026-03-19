@@ -1,4 +1,6 @@
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -12,17 +14,17 @@ async function bootstrap() {
     throw new Error('DATABASE_URL 환경변수가 필요합니다.');
   }
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(PinoLogger));
   app.setGlobalPrefix('api');
-  app.enableCors({ origin: true }); // 개발: 요청 Origin 그대로 허용
+  app.enableCors({ origin: true });
 
+  const logger = new Logger('Bootstrap');
   await app.listen(process.env.PORT ?? 3000);
-  // eslint-disable-next-line no-console -- bootstrap log
-  console.log('서버 실행: http://localhost:3000');
+  logger.log('서버 실행: http://localhost:3000');
 
   if (isMockMode) {
-    // eslint-disable-next-line no-console -- bootstrap log
-    console.log('⚠️  MOCK_ANALYSIS=true — API 키 없이 테스트 모드');
+    logger.warn('MOCK_ANALYSIS=true — API 키 없이 테스트 모드');
   }
 }
 

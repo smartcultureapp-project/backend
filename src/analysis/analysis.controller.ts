@@ -8,12 +8,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { AnalysisService } from './analysis.service';
-
-class StartAnalysisDto {
-  companyName!:    string;
-  jobRole!:        string;
-  additionalInfo?: string;
-}
+import { StartAnalysisDto } from './dto/start-analysis.dto';
 
 @Controller('analysis')
 export class AnalysisController {
