@@ -1,4 +1,4 @@
-import { anthropic } from '@ai-sdk/anthropic';
+import { getAgentModel } from './model-provider';
 import { Agent } from '@mastra/core/agent';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -13,6 +13,7 @@ export function createAnalysisAgent(
   companyName: string,
   jobRole: string,
   additionalInfo?: string,
+  companyId?: string,
 ) {
   const skillsPath = join(__dirname, '..', 'skills', 'company-analysis.md');
   const skills = readFileSync(skillsPath, 'utf-8');
@@ -20,7 +21,7 @@ export function createAnalysisAgent(
   return new Agent({
     id:           'analysis-agent',
     name:         'analysis-agent',
-    model:        anthropic('claude-haiku-4-5-20251001'),
+    model:        getAgentModel(),
     instructions: skills,
     tools:        {
       web_search:    webSearchTool,
@@ -31,6 +32,7 @@ export function createAnalysisAgent(
         companyName,
         jobRole,
         additionalInfo,
+        companyId,
       ),
     },
   });

@@ -1,6 +1,7 @@
 model CompanyAnalysis {
   id                        String   @id
   sessionId                 String
+  companyId                 String?
   companyName               String
   jobRole                   String
   rawAdditionalInfo         String?
@@ -12,12 +13,16 @@ model CompanyAnalysis {
   recommendedQuestionAngles String
   interviewAvoid            String   @default("[]")
   interviewSuccessTips      String   @default("[]")
+  interviewTips             String   @default("[]")
+  actualQuestions           String   @default("[]")
+  interviewProcess          String   @default("")
   searchSources             String
   rawSearchResults          String?
 
   companySummary            String
   jobRoleSummary            String
   confidenceScore           Int      @default(0)
+  researchedAt              DateTime @default(now())
   createdAt                 DateTime @default(now())
 
   @@map("company_analysis")

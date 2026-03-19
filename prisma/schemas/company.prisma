@@ -1,0 +1,19 @@
+model Company {
+  id            String   @id @default(nanoid())
+  name          String   @unique
+  nameEn        String?
+  logoUrl       String?
+  industry      String?
+  description   String?
+  website       String?
+  headquarters  String?
+  employeeCount String?
+  foundedYear   Int?
+  stockTicker   String?
+  techBlog      String?
+  careerPage    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("companies")
+}

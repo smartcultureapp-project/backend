@@ -45,6 +45,10 @@ bun run db:push
 bun run start:dev
 ```
 
+### 5. 프론트엔드 (선택)
+
+서버 실행 후 브라우저에서 `http://localhost:3000/index.html` 접속. Bootstrap + jQuery 기반 단일 페이지로 분석 시작, SSE 진행 상태, 분석 결과·평가서·회사 정보 조회 가능.
+
 ## API
 
 ### POST /api/analysis/start

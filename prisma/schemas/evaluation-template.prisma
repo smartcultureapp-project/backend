@@ -1,0 +1,10 @@
+model EvaluationTemplate {
+  id                String   @id
+  companyAnalysisId String
+  companyName       String
+  jobRole           String
+  template          String
+  createdAt         DateTime @default(now())
+
+  @@map("evaluation_templates")
+}
