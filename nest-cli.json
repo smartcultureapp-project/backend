@@ -9,6 +9,10 @@
       {
         "include": "generated/**/*",
         "outDir": "dist"
+      },
+      {
+        "include": "skills/**/*",
+        "outDir": "dist"
       }
     ],
     "watchAssets": true

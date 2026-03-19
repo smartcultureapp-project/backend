@@ -1,0 +1,11 @@
+model Session {
+  id                 String   @id
+  companyName        String
+  jobRole            String
+  additionalInfo     String?
+  phase              String   @default("PREPARING")
+  companyAnalysisId  String?
+  createdAt          DateTime @default(now())
+
+  @@map("sessions")
+}

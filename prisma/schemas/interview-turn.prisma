@@ -1,0 +1,14 @@
+model InterviewTurn {
+  id            String   @id
+  sessionId     String
+  question      String?
+  answer        String?
+  score         Int?
+  feedbackGood  String?
+  feedbackImprove String?
+  betterAnswer  String?
+  turnIndex     Int?
+  createdAt     DateTime @default(now())
+
+  @@map("interview_turns")
+}

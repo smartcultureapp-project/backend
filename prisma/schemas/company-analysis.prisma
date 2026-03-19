@@ -1,0 +1,24 @@
+model CompanyAnalysis {
+  id                        String   @id
+  sessionId                 String
+  companyName               String
+  jobRole                   String
+  rawAdditionalInfo         String?
+
+  talents                   String
+  techStack                 String
+  cultureKeywords           String
+  interviewStyle            String
+  recommendedQuestionAngles String
+  interviewAvoid            String   @default("[]")
+  interviewSuccessTips      String   @default("[]")
+  searchSources             String
+  rawSearchResults          String?
+
+  companySummary            String
+  jobRoleSummary            String
+  confidenceScore           Int      @default(0)
+  createdAt                 DateTime @default(now())
+
+  @@map("company_analysis")
+}
