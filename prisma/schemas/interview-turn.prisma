@@ -1,14 +1,16 @@
 model InterviewTurn {
-  id            String   @id
-  sessionId     String
-  question      String?
-  answer        String?
-  score         Int?
-  feedbackGood  String?
+  id              String   @id
+  sessionId       String
+  question        String?
+  answer          String?
+  score           Int?
+  feedbackGood    String?
   feedbackImprove String?
-  betterAnswer  String?
-  turnIndex     Int?
-  createdAt     DateTime @default(now())
+  betterAnswer    String?
+  turnIndex       Int?
+  createdAt       DateTime @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("interview_turns")
 }

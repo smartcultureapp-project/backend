@@ -1,0 +1,152 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
+import type { Request } from 'express';
+import { AuthGuard } from '../auth/auth.guard';
+import {
+  AnswerFeedbackResponseDto,
+  InterviewTurnResponseDto,
+  NextQuestionResponseDto,
+  SessionResponseDto,
+} from '../docs/response-schemas';
+import { CreateInterviewTurnDto } from './dto/create-interview-turn.dto';
+import { SubmitInterviewAnswerDto } from './dto/submit-interview-answer.dto';
+import { UpdateSessionDto } from './dto/update-session.dto';
+import { MockInterviewService } from './mock-interview.service';
+import { SessionService } from './session.service';
+
+@ApiTags('sessions')
+@ApiBearerAuth('Bearer')
+@UseGuards(AuthGuard)
+@Controller('sessions')
+export class SessionController {
+  constructor(private readonly sessionService: SessionService,
+    private readonly mockInterviewService: MockInterviewService) {}
+
+  @Get()
+  @ApiOperation({
+    summary:     '내 세션 목록',
+    description: '로그인한 사용자의 면접 세션 목록을 반환합니다.',
+  })
+  @ApiOkResponse({
+    description: 'Session[]', type: [SessionResponseDto],
+  })
+  async list(@Req() req: Request) {
+    return this.sessionService.findAllForUser(req.user!.sub);
+  }
+
+  @Get(':id/interview-turns')
+  @ApiOperation({
+    summary:     '면접 턴 목록',
+    description: '해당 세션의 질문·답변 턴 목록을 반환합니다.',
+  })
+  @ApiParam({
+    name: 'id', description: 'Session ID',
+  })
+  @ApiOkResponse({
+    description: 'InterviewTurn[]', type: [InterviewTurnResponseDto],
+  })
+  async listTurns(@Param('id') id: string, @Req() req: Request) {
+    return this.sessionService.listInterviewTurns(id, req.user!.sub);
+  }
+
+  @Post(':id/interview-turns')
+  @ApiOperation({
+    summary:     '면접 턴 추가',
+    description: '질문/답변/점수 등 턴 레코드를 추가합니다.',
+  })
+  @ApiParam({
+    name: 'id', description: 'Session ID',
+  })
+  @ApiBody({ type: CreateInterviewTurnDto })
+  @ApiCreatedResponse({
+    description: '생성된 InterviewTurn', type: InterviewTurnResponseDto,
+  })
+  async addTurn(@Param('id') id: string,
+    @Body() dto: CreateInterviewTurnDto,
+    @Req() req: Request) {
+    return this.sessionService.addInterviewTurn(id, req.user!.sub, dto);
+  }
+
+  @Post(':id/interview/next-question')
+  @ApiOperation({
+    summary:     '다음 모의 면접 질문',
+    description: '모의 면접 플로우에서 다음 질문을 생성·반환합니다.',
+  })
+  @ApiParam({
+    name: 'id', description: 'Session ID',
+  })
+  @ApiOkResponse({
+    description: '다음 질문 페이로드', type: NextQuestionResponseDto,
+  })
+  async nextInterviewQuestion(@Param('id') id: string, @Req() req: Request) {
+    return this.mockInterviewService.nextQuestion(id, req.user!.sub);
+  }
+
+  @Post(':id/interview/answer')
+  @ApiOperation({
+    summary:     '모의 면접 답변 제출',
+    description: '사용자 답변을 제출하고 피드백 등을 반환합니다.',
+  })
+  @ApiParam({
+    name: 'id', description: 'Session ID',
+  })
+  @ApiBody({ type: SubmitInterviewAnswerDto })
+  @ApiOkResponse({
+    description: '채점·피드백 등 결과', type: AnswerFeedbackResponseDto,
+  })
+  async submitInterviewAnswer(@Param('id') id: string,
+    @Body() dto: SubmitInterviewAnswerDto,
+    @Req() req: Request) {
+    return this.mockInterviewService.submitAnswer(id, req.user!.sub, dto);
+  }
+
+  @Get(':id')
+  @ApiOperation({
+    summary:     '세션 단건',
+    description: '세션 상세를 조회합니다. 본인 세션만 가능합니다.',
+  })
+  @ApiParam({
+    name: 'id', description: 'Session ID',
+  })
+  @ApiOkResponse({
+    description: 'Session 레코드', type: SessionResponseDto,
+  })
+  async getOne(@Param('id') id: string, @Req() req: Request) {
+    return this.sessionService.findOneForUser(id, req.user!.sub);
+  }
+
+  @Patch(':id')
+  @ApiOperation({
+    summary:     '세션 수정',
+    description: 'phase, resumeAnalysisId, evaluationSheetId 등을 갱신합니다.',
+  })
+  @ApiParam({
+    name: 'id', description: 'Session ID',
+  })
+  @ApiBody({ type: UpdateSessionDto })
+  @ApiOkResponse({
+    description: '갱신된 Session', type: SessionResponseDto,
+  })
+  async patch(@Param('id') id: string,
+    @Body() dto: UpdateSessionDto,
+    @Req() req: Request) {
+    return this.sessionService.updateForUser(id, req.user!.sub, dto);
+  }
+}

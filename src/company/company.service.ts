@@ -24,9 +24,19 @@ export class CompanyService {
     const logoUrl = dto.website ? logoUrlFromWebsite(dto.website) : undefined;
 
     const company = await this.prisma.company.create({ data: {
-      id:      nanoid(),
-      ...dto,
-      logoUrl: dto.website ? logoUrl : undefined,
+      id:            nanoid(),
+      name:          dto.name,
+      nameEn:        dto.nameEn ?? null,
+      industry:      dto.industry ?? null,
+      description:   dto.description ?? null,
+      website:       dto.website ?? null,
+      headquarters:  dto.headquarters ?? null,
+      employeeCount: dto.employeeCount ?? null,
+      foundedYear:   dto.foundedYear ?? null,
+      stockTicker:   dto.stockTicker ?? null,
+      techBlog:      dto.techBlog ?? null,
+      careerPage:    dto.careerPage ?? null,
+      logoUrl:       dto.website ? logoUrl : null,
     } });
 
     this.logger.log(`Company 생성: ${company.name} (${company.id})`);
@@ -78,20 +88,19 @@ export class CompanyService {
     }
 
     try {
-      const agent = createCompanyEnrichmentAgent(
-        this.prisma,
+      const agent = createCompanyEnrichmentAgent(this.prisma,
         id,
         company.name,
-        company.website,
-      );
+        company.website);
 
-      const prompt = `회사명: ${company.name}${company.website ? `\n웹사이트: ${company.website}` : ''}\n\n위 회사의 nameEn, employeeCount, foundedYear, stockTicker를 조사하여 save_company_info로 저장하세요.`;
+      const prompt = `회사명: ${company.name}${company.website ? `\n웹사이트: ${company.website}` : ''}\n\n위 회사의 nameEn, description, employeeCount, foundedYear, stockTicker를 조사하여 save_company_info로 저장하세요. description은 공식 소개에서, employeeCount는 공식/신뢰 출처에서만.`;
 
       await agent.generate(prompt, { maxSteps: 20 });
 
       const updatedCompany = await this.prisma.company.findUnique({ where: { id } });
       const hasEnrichment = updatedCompany && (
         (updatedCompany.nameEn ?? null) !== (company.nameEn ?? null) ||
+        (updatedCompany.description ?? null) !== (company.description ?? null) ||
         (updatedCompany.employeeCount ?? null) !== (company.employeeCount ?? null) ||
         (updatedCompany.foundedYear ?? null) !== (company.foundedYear ?? null) ||
         (updatedCompany.stockTicker ?? null) !== (company.stockTicker ?? null)
@@ -103,7 +112,7 @@ export class CompanyService {
         this.logger.log(`Company repair: ${company.name} - logo=${Object.keys(updates).length > 0}, enrichment=${!!hasEnrichment}`);
 
         return {
-          ...(updated ?? company),
+          ...updated ?? company,
           repaired: true,
         };
       }
@@ -131,44 +140,10 @@ export class CompanyService {
     const analysisIds = analyses.map(a => a.id);
     const templates = await this.prisma.evaluationTemplate.findMany({ where: { companyAnalysisId: { in: analysisIds } } });
 
-    const parseJson = (val: unknown): unknown => {
-      if (typeof val !== 'string') return val;
-
-      try {
-        return JSON.parse(val) as unknown;
-      } catch {
-        return val;
-      }
-    };
-
-    const formattedAnalyses = analyses.map(a => {
-      const r = a as unknown as Record<string, unknown>;
-
-      return {
-        ...r,
-        talents:                   parseJson(r.talents),
-        techStack:                 parseJson(r.techStack),
-        cultureKeywords:           parseJson(r.cultureKeywords),
-        interviewStyle:            parseJson(r.interviewStyle),
-        recommendedQuestionAngles: parseJson(r.recommendedQuestionAngles),
-        interviewAvoid:            parseJson(r.interviewAvoid),
-        interviewSuccessTips:      parseJson(r.interviewSuccessTips),
-        interviewTips:             parseJson(r.interviewTips),
-        actualQuestions:           parseJson(r.actualQuestions),
-        searchSources:             parseJson(r.searchSources),
-      };
-    });
-
     const formattedTemplates = templates.map(t => {
-      let parsed = { stages: [] };
-
-      try {
-        parsed = JSON.parse(t.template) as {
-          stages: unknown[];
-        };
-      } catch {
-        // ignore
-      }
+      const parsed = (t.template ?? { stages: [] }) as {
+        stages: unknown[];
+      };
 
       return {
         id:                t.id,
@@ -182,7 +157,7 @@ export class CompanyService {
 
     return {
       company:             company,
-      analyses:            formattedAnalyses,
+      analyses,
       evaluationTemplates: formattedTemplates,
     };
   }

@@ -2,16 +2,121 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d6efd">
   <title>Interview Coach - 회사 분석</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      .tab-content { display: block !important; }
+      .tab-pane { display: block !important; opacity: 1 !important; }
+    }
+    .btn-touch { min-height: 44px; }
+    @media (min-width: 768px) {
+      .btn-touch { min-height: unset; }
+    }
+  </style>
 </head>
 <body class="bg-light">
   <div class="container py-4">
     <h1 class="mb-4">Interview Coach</h1>
 
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3 no-print" id="resultToolbar" style="display:none">
+      <button type="button" class="btn btn-sm btn-outline-dark btn-touch" id="btnCopyAnalysisJson">분석 JSON 복사</button>
+      <button type="button" class="btn btn-sm btn-outline-dark btn-touch" id="btnCopyEvalJson">평가 템플릿 JSON 복사</button>
+      <button type="button" class="btn btn-sm btn-outline-dark btn-touch" id="btnCopyCompanyJson">회사 JSON 복사</button>
+      <button type="button" class="btn btn-sm btn-outline-primary btn-touch" id="btnPrintResults">인쇄 / PDF</button>
+    </div>
+
+    <div class="card mb-4 no-print" id="authCard">
+      <div class="card-header">계정</div>
+      <div class="card-body">
+        <div id="authLoggedOut">
+          <ul class="nav nav-tabs mb-3" role="tablist">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabLogin" type="button">로그인</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabRegister" type="button">회원가입</button></li>
+          </ul>
+          <div class="tab-content">
+            <div class="tab-pane fade show active" id="tabLogin">
+              <form id="loginForm" class="row g-2">
+                <div class="col-md-5"><input type="email" class="form-control" name="email" placeholder="이메일" required></div>
+                <div class="col-md-4"><input type="password" class="form-control" name="password" placeholder="비밀번호" required></div>
+                <div class="col-md-3"><button type="submit" class="btn btn-primary w-100">로그인</button></div>
+              </form>
+            </div>
+            <div class="tab-pane fade" id="tabRegister">
+              <form id="registerForm" class="row g-2">
+                <div class="col-md-4"><input type="email" class="form-control" name="email" placeholder="이메일" required></div>
+                <div class="col-md-3"><input type="password" class="form-control" name="password" placeholder="비밀번호 (6자+)" required minlength="6"></div>
+                <div class="col-md-3"><input type="text" class="form-control" name="name" placeholder="이름" required minlength="1"></div>
+                <div class="col-md-2"><button type="submit" class="btn btn-success w-100">가입</button></div>
+              </form>
+            </div>
+          </div>
+        </div>
+        <div id="authLoggedIn" style="display:none" class="d-flex flex-wrap align-items-center gap-2">
+          <span class="text-muted small" id="authUserLabel"></span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnLogout">로그아웃</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-4 no-print">
+      <div class="card-header">면접 준비 (세션 · 이력서 · 면접 기록)</div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">로그인 후 사용합니다. 회사 분석이 끝나면 <strong>세션 ID</strong>가 아래에 자동으로 채워집니다.</p>
+        <div id="sessionIdBanner" class="alert alert-info py-2 small mb-3" style="display:none">
+          <strong>현재 세션 ID</strong>
+          <code id="sessionIdDisplay" class="user-select-all d-inline-block ms-1"></code>
+          <button type="button" class="btn btn-sm btn-outline-secondary ms-2" id="btnCopySessionId">복사</button>
+        </div>
+        <div class="row g-3">
+          <div class="col-lg-6">
+            <label class="form-label">이력서 / 자기소개서 텍스트</label>
+            <textarea class="form-control font-monospace small" id="resumeText" rows="5" placeholder="붙여넣기 후 저장"></textarea>
+            <div class="input-group mt-2">
+              <span class="input-group-text">연결 세션 ID (선택)</span>
+              <input type="text" class="form-control" id="resumeSessionId" placeholder="분석 완료 후 표시되는 sessionId">
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+              <button type="button" class="btn btn-outline-primary btn-touch" id="btnSaveResume">이력서 저장</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm btn-touch" id="btnResumeSummaryRefresh">요약 새로고침</button>
+            </div>
+            <p class="small text-muted mb-0 mt-2">마지막 이력서 ID: <code id="lastResumeIdLabel">—</code></p>
+          </div>
+          <div class="col-lg-6">
+            <label class="form-label">면접 턴 — 세션 ID</label>
+            <input type="text" class="form-control mb-2" id="turnSessionId" placeholder="sessionId">
+            <div class="btn-group mb-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnLoadSessions">내 세션 목록</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnLoadTurns">이 세션 턴 불러오기</button>
+            </div>
+            <pre id="sessionsOrTurnsOut" class="small bg-white border rounded p-2" style="max-height:220px;overflow:auto">{}</pre>
+            <div class="row g-2 mt-2">
+              <div class="col-12"><input type="text" class="form-control form-control-sm" id="turnQuestion" placeholder="질문 (선택)"></div>
+              <div class="col-12"><textarea class="form-control form-control-sm" id="turnAnswer" rows="2" placeholder="답변 (선택)"></textarea></div>
+              <div class="col-12"><button type="button" class="btn btn-sm btn-primary" id="btnAddTurn">턴 추가</button></div>
+            </div>
+            <hr class="my-3">
+            <p class="small fw-semibold mb-2">AI 모의 면접 (위와 같은 세션 ID)</p>
+            <div id="mockInterviewQuestionWrap" class="mb-2" style="display:none">
+              <label class="form-label small mb-1 text-muted">현재 질문</label>
+              <div id="currentInterviewQuestion" class="small border rounded p-2 bg-white" style="min-height:2.5rem"></div>
+            </div>
+            <div class="btn-group mb-2 flex-wrap">
+              <button type="button" class="btn btn-sm btn-outline-primary" id="btnNextInterviewQ">다음 질문 받기</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRefreshTurns">턴 목록 새로고침</button>
+            </div>
+            <textarea class="form-control form-control-sm mb-2" id="mockInterviewAnswer" rows="3" placeholder="질문을 받은 뒤 답변을 입력하고 &quot;답변 제출&quot;"></textarea>
+            <button type="button" class="btn btn-sm btn-success" id="btnSubmitInterviewAnswer">답변 제출 · 평가</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 기존 회사 선택 -->
-    <div class="card mb-4">
+    <div class="card mb-4 no-print">
       <div class="card-header">저장된 회사 보기</div>
       <div class="card-body">
         <div class="row g-2 align-items-end">
@@ -33,7 +138,7 @@
     </div>
 
     <!-- 분석 시작 폼 -->
-    <div class="card mb-4">
+    <div class="card mb-4 no-print">
       <div class="card-header">분석 시작</div>
       <div class="card-body">
         <form id="startForm">
@@ -65,7 +170,7 @@
     </div>
 
     <!-- SSE 상태 -->
-    <div class="card mb-4" id="statusCard" style="display:none">
+    <div class="card mb-4 no-print" id="statusCard" style="display:none">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span>진행 상태</span>
         <span class="badge bg-secondary" id="statusBadge">대기 중</span>
@@ -86,28 +191,24 @@
       <div class="tab-pane fade show active" id="tabAnalysis">
         <div class="card">
           <div class="card-body">
-            <ul class="nav nav-pills mb-3">
-              <li class="nav-item"><a class="nav-link active" href="#analysisResult" data-bs-toggle="tab">Result</a></li>
-              <li class="nav-item"><a class="nav-link" href="#analysisRaw" data-bs-toggle="tab">Raw</a></li>
+            <ul class="nav nav-pills mb-3" role="tablist" id="analysisSubTabs">
+              <li class="nav-item"><a class="nav-link active" href="#" data-subtab="result" role="tab">Result</a></li>
+              <li class="nav-item"><a class="nav-link" href="#" data-subtab="raw" role="tab">Raw</a></li>
             </ul>
-            <div class="tab-content">
-              <div class="tab-pane fade show active" id="analysisResult"><div id="analysisResultBody" style="max-height:70vh;overflow-y:auto"></div></div>
-              <div class="tab-pane fade" id="analysisRaw"><pre id="analysisJson" class="mb-0" style="white-space:pre-wrap;font-size:0.85rem"></pre></div>
-            </div>
+            <div id="analysisResultWrap" style="max-height:70vh;overflow-y:auto"><div id="analysisResultBody"></div></div>
+            <div id="analysisRawWrap" style="display:none;max-height:70vh;overflow-y:auto"><pre id="analysisJson" class="mb-0" style="white-space:pre-wrap;font-size:0.85rem"></pre></div>
           </div>
         </div>
       </div>
       <div class="tab-pane fade" id="tabEvaluation">
         <div class="card">
           <div class="card-body">
-            <ul class="nav nav-pills mb-3">
-              <li class="nav-item"><a class="nav-link active" href="#evalResult" data-bs-toggle="tab">Result</a></li>
-              <li class="nav-item"><a class="nav-link" href="#evalRaw" data-bs-toggle="tab">Raw</a></li>
+            <ul class="nav nav-pills mb-3" role="tablist" id="evalSubTabs">
+              <li class="nav-item"><a class="nav-link active" href="#" data-subtab="result" role="tab">Result</a></li>
+              <li class="nav-item"><a class="nav-link" href="#" data-subtab="raw" role="tab">Raw</a></li>
             </ul>
-            <div class="tab-content">
-              <div class="tab-pane fade show active" id="evalResult"><div id="evalResultBody" style="max-height:70vh;overflow-y:auto"></div></div>
-              <div class="tab-pane fade" id="evalRaw"><pre id="evaluationJson" class="mb-0" style="white-space:pre-wrap;font-size:0.85rem"></pre></div>
-            </div>
+            <div id="evalResultWrap" style="max-height:70vh;overflow-y:auto"><div id="evalResultBody"></div></div>
+            <div id="evalRawWrap" style="display:none;max-height:70vh;overflow-y:auto"><pre id="evaluationJson" class="mb-0" style="white-space:pre-wrap;font-size:0.85rem"></pre></div>
           </div>
         </div>
       </div>
@@ -115,16 +216,14 @@
         <div class="card">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3">
-              <ul class="nav nav-pills mb-0">
-                <li class="nav-item"><a class="nav-link active" href="#companyResult" data-bs-toggle="tab">Result</a></li>
-                <li class="nav-item"><a class="nav-link" href="#companyRaw" data-bs-toggle="tab">Raw</a></li>
+              <ul class="nav nav-pills mb-0" role="tablist" id="companySubTabs">
+                <li class="nav-item"><a class="nav-link active" href="#" data-subtab="result" role="tab">Result</a></li>
+                <li class="nav-item"><a class="nav-link" href="#" data-subtab="raw" role="tab">Raw</a></li>
               </ul>
               <button type="button" class="btn btn-sm btn-outline-warning" id="btnRepairCompany" title="logoUrl 등 회사 정보 수정" style="display:none">Repair</button>
             </div>
-            <div class="tab-content">
-              <div class="tab-pane fade show active" id="companyResult"><div id="companyResultBody" style="max-height:70vh;overflow-y:auto"></div></div>
-              <div class="tab-pane fade" id="companyRaw"><pre id="companyJson" class="mb-0" style="white-space:pre-wrap;font-size:0.85rem"></pre></div>
-            </div>
+            <div id="companyResultWrap" style="max-height:70vh;overflow-y:auto"><div id="companyResultBody"></div></div>
+            <div id="companyRawWrap" style="display:none;max-height:70vh;overflow-y:auto"><pre id="companyJson" class="mb-0" style="white-space:pre-wrap;font-size:0.85rem"></pre></div>
           </div>
         </div>
       </div>
@@ -135,16 +234,81 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     const API_BASE = window.location.origin + '/api';
+    const TOKEN_KEY = 'ic_access_token';
+    let accessToken = localStorage.getItem(TOKEN_KEY) || '';
     let currentCompanyId = null;
+    let lastResumeId = null;
+
+    function authHeaders(includeJson) {
+      const h = {};
+      if (includeJson !== false) h['Content-Type'] = 'application/json';
+      if (accessToken) h['Authorization'] = 'Bearer ' + accessToken;
+      return h;
+    }
+
+    function setAccessToken(token) {
+      accessToken = token || '';
+      if (token) localStorage.setItem(TOKEN_KEY, token);
+      else localStorage.removeItem(TOKEN_KEY);
+      syncAuthUI();
+    }
+
+    function syncAuthUI() {
+      if (accessToken) {
+        $('#authLoggedOut').hide();
+        $('#authLoggedIn').show();
+        fetch(API_BASE + '/auth/me', { headers: authHeaders(false) })
+          .then(function (r) {
+            if (r.status === 401) {
+              setAccessToken('');
+              return null;
+            }
+            return r.ok ? r.json() : null;
+          })
+          .then(function (u) {
+            if (u) $('#authUserLabel').text(u.email + (u.name ? ' (' + u.name + ')' : ''));
+            else if (accessToken) $('#authUserLabel').text('로그인됨');
+          })
+          .catch(function () { $('#authUserLabel').text('로그인됨'); });
+      } else {
+        $('#authLoggedOut').show();
+        $('#authLoggedIn').hide();
+        $('#authUserLabel').text('');
+      }
+    }
+
+    /** @returns {boolean} true면 호출부에서 중단 (401 처리됨) */
+    function checkUnauthorized(res) {
+      if (res.status === 401) {
+        setAccessToken('');
+        syncAuthUI();
+        alert('로그인이 필요합니다. 다시 로그인해 주세요.');
+        return true;
+      }
+      return false;
+    }
+
+    function applySessionId(sid) {
+      if (!sid) return;
+      $('#resumeSessionId').val(sid);
+      $('#turnSessionId').val(sid);
+      $('#sessionIdDisplay').text(sid);
+      $('#sessionIdBanner').show();
+    }
 
     function arr(v) { return Array.isArray(v) ? v : []; }
 
     function renderAnalysisUI(data) {
       let list = Array.isArray(data) ? data : [data];
-      list = list.filter(function (a, i, arr) {
-        const id = a && a.id;
-        if (!id) return true;
-        return arr.findIndex(function (x) { return x && x.id === id; }) === i;
+      list = list.flatMap(function (x) { return Array.isArray(x) ? x : [x]; });
+      list = list.filter(function (a) { return a && typeof a === 'object'; });
+      var seen = new Set();
+      list = list.filter(function (a) {
+        const id = a.id || a.sessionId;
+        const key = id || (a.companyName + '|' + a.jobRole + '|' + (a.companySummary || '').slice(0, 50));
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
       });
       if (!list.length) return '<p class="text-muted">분석 결과 없음</p>';
 
@@ -229,7 +393,8 @@
     // 회사 목록 로드
     async function loadCompanyList() {
       try {
-        const res = await fetch(API_BASE + '/company');
+        const res = await fetch(API_BASE + '/company', { headers: authHeaders(false) });
+        if (checkUnauthorized(res)) return;
         if (!res.ok) return;
         const companies = await Response.prototype.json.call(res);
         const $sel = $('#companySelect');
@@ -259,6 +424,7 @@
       $('#btnRepairCompany').toggle(!!currentCompanyId);
       $('#resultContent').show();
       $('#resultTabs').show();
+      $('#resultToolbar').show();
       $('#tabAnalysis').tab('show');
     }
 
@@ -280,9 +446,205 @@
       $('#btnRepairCompany').toggle(!!currentCompanyId);
       $('#resultContent').show();
       $('#resultTabs').show();
+      $('#resultToolbar').show();
+      $('#tabAnalysis').tab('show');
     }
 
+    $('#loginForm').on('submit', async function (e) {
+      e.preventDefault();
+      const fd = new FormData(this);
+      const body = { email: fd.get('email'), password: fd.get('password') };
+      try {
+        const res = await fetch(API_BASE + '/auth/login', {
+          method: 'POST', headers: authHeaders(), body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.message || data.error || '로그인 실패');
+        setAccessToken(data.accessToken);
+        loadCompanyList();
+        alert('로그인되었습니다.');
+      } catch (err) { alert(err.message); }
+    });
+
+    $('#registerForm').on('submit', async function (e) {
+      e.preventDefault();
+      const fd = new FormData(this);
+      const name = (fd.get('name') || '').trim();
+      if (!name) { alert('이름을 입력하세요.'); return; }
+      const body = {
+        email: fd.get('email'), password: fd.get('password'),
+        name,
+      };
+      try {
+        const res = await fetch(API_BASE + '/auth/register', {
+          method: 'POST', headers: authHeaders(), body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.message || data.error || '가입 실패');
+        setAccessToken(data.accessToken);
+        loadCompanyList();
+        alert('가입 및 로그인되었습니다.');
+      } catch (err) { alert(err.message); }
+    });
+
+    $('#btnLogout').on('click', function () {
+      setAccessToken('');
+      loadCompanyList();
+    });
+
+    $('#btnSaveResume').on('click', async function () {
+      const rawText = ($('#resumeText').val() || '').trim();
+      if (!rawText) { alert('텍스트를 입력하세요.'); return; }
+      const sessionId = ($('#resumeSessionId').val() || '').trim() || undefined;
+      const body = { rawText: rawText, sessionId: sessionId };
+      try {
+        const res = await fetch(API_BASE + '/resume', {
+          method: 'POST', headers: authHeaders(), body: JSON.stringify(body),
+        });
+        if (checkUnauthorized(res)) return;
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.message || JSON.stringify(data));
+        lastResumeId = data.id;
+        $('#lastResumeIdLabel').text(data.id);
+        alert('저장됨 (id: ' + data.id + '). 이력서 요약 생성 중…');
+        pollResumeSummary(data.id);
+      } catch (err) { alert(err.message); }
+    });
+
+    $('#btnResumeSummaryRefresh').on('click', async function () {
+      const id = lastResumeId || ($('#lastResumeIdLabel').text() || '').trim();
+      if (!id || id === '—') { alert('먼저 이력서를 저장하세요.'); return; }
+      try {
+        const res = await fetch(API_BASE + '/resume/' + encodeURIComponent(id), { headers: authHeaders(false) });
+        if (checkUnauthorized(res)) return;
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.message || JSON.stringify(data));
+        alert(data.summary ? '요약 준비됨 (콘솔/목록에서 확인)' : '요약 없음 — 잠시 후 다시 시도');
+      } catch (err) { alert(err.message); }
+    });
+
+    $('#btnCopyAnalysisJson').on('click', function () {
+      const t = $('#analysisJson').text() || '';
+      navigator.clipboard.writeText(t).then(function () { alert('복사했습니다.'); }).catch(function () { alert(t.slice(0, 500)); });
+    });
+    $('#btnCopyEvalJson').on('click', function () {
+      const t = $('#evaluationJson').text() || '';
+      navigator.clipboard.writeText(t).then(function () { alert('복사했습니다.'); }).catch(function () { alert(t.slice(0, 500)); });
+    });
+    $('#btnCopyCompanyJson').on('click', function () {
+      const t = $('#companyJson').text() || '';
+      navigator.clipboard.writeText(t).then(function () { alert('복사했습니다.'); }).catch(function () { alert(t.slice(0, 500)); });
+    });
+    $('#btnPrintResults').on('click', function () { window.print(); });
+
+    async function pollResumeSummary(resumeId) {
+      for (let i = 0; i < 40; i++) {
+        if (i > 0) await new Promise(function (r) { setTimeout(r, 1500); });
+        try {
+          const res = await fetch(API_BASE + '/resume/' + encodeURIComponent(resumeId), { headers: authHeaders(false) });
+          if (checkUnauthorized(res)) return;
+          if (!res.ok) break;
+          const data = await res.json();
+          if (data && data.summary) {
+            alert('이력서 요약이 준비되었습니다.');
+            return;
+          }
+        } catch (_) { break; }
+      }
+    }
+
+    $('#btnCopySessionId').on('click', function () {
+      const t = ($('#sessionIdDisplay').text() || '').trim();
+      if (!t) return;
+      navigator.clipboard.writeText(t).then(function () { alert('복사했습니다.'); }).catch(function () { alert(t); });
+    });
+
+    $('#btnLoadSessions').on('click', async function () {
+      try {
+        const res = await fetch(API_BASE + '/sessions', { headers: authHeaders(false) });
+        if (checkUnauthorized(res)) return;
+        const data = await res.json().catch(function () { return []; });
+        if (!res.ok) throw new Error(JSON.stringify(data));
+        $('#sessionsOrTurnsOut').text(JSON.stringify(data, null, 2));
+      } catch (err) { alert(err.message); }
+    });
+
+    async function loadTurnsForCurrentSession() {
+      const sid = ($('#turnSessionId').val() || '').trim();
+      if (!sid) { alert('세션 ID를 입력하세요.'); return; }
+      try {
+        const res = await fetch(API_BASE + '/sessions/' + encodeURIComponent(sid) + '/interview-turns', {
+          headers: authHeaders(false),
+        });
+        if (checkUnauthorized(res)) return;
+        const data = await res.json().catch(function () { return []; });
+        if (!res.ok) throw new Error(JSON.stringify(data));
+        $('#sessionsOrTurnsOut').text(JSON.stringify(data, null, 2));
+      } catch (err) { alert(err.message); }
+    }
+
+    $('#btnLoadTurns').on('click', loadTurnsForCurrentSession);
+    $('#btnRefreshTurns').on('click', loadTurnsForCurrentSession);
+
+    $('#btnAddTurn').on('click', async function () {
+      const sid = ($('#turnSessionId').val() || '').trim();
+      if (!sid) { alert('세션 ID를 입력하세요.'); return; }
+      const body = {
+        question: ($('#turnQuestion').val() || '').trim() || undefined,
+        answer: ($('#turnAnswer').val() || '').trim() || undefined,
+      };
+      try {
+        const res = await fetch(API_BASE + '/sessions/' + encodeURIComponent(sid) + '/interview-turns', {
+          method: 'POST', headers: authHeaders(), body: JSON.stringify(body),
+        });
+        if (checkUnauthorized(res)) return;
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.message || JSON.stringify(data));
+        $('#sessionsOrTurnsOut').text(JSON.stringify(data, null, 2));
+        $('#turnQuestion').val('');
+        $('#turnAnswer').val('');
+      } catch (err) { alert(err.message); }
+    });
+
+    $('#btnNextInterviewQ').on('click', async function () {
+      const sid = ($('#turnSessionId').val() || '').trim();
+      if (!sid) { alert('세션 ID를 입력하세요.'); return; }
+      try {
+        const res = await fetch(API_BASE + '/sessions/' + encodeURIComponent(sid) + '/interview/next-question', {
+          method: 'POST', headers: authHeaders(false),
+        });
+        if (checkUnauthorized(res)) return;
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.message || JSON.stringify(data));
+        $('#sessionsOrTurnsOut').text(JSON.stringify(data, null, 2));
+        $('#mockInterviewAnswer').val('');
+        if (data && data.question) {
+          $('#currentInterviewQuestion').text(data.question);
+          $('#mockInterviewQuestionWrap').show();
+        }
+      } catch (err) { alert(err.message); }
+    });
+
+    $('#btnSubmitInterviewAnswer').on('click', async function () {
+      const sid = ($('#turnSessionId').val() || '').trim();
+      if (!sid) { alert('세션 ID를 입력하세요.'); return; }
+      const answer = ($('#mockInterviewAnswer').val() || '').trim();
+      if (!answer) { alert('답변을 입력하세요.'); return; }
+      try {
+        const res = await fetch(API_BASE + '/sessions/' + encodeURIComponent(sid) + '/interview/answer', {
+          method: 'POST', headers: authHeaders(), body: JSON.stringify({ answer: answer }),
+        });
+        if (checkUnauthorized(res)) return;
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.message || JSON.stringify(data));
+        $('#sessionsOrTurnsOut').text(JSON.stringify(data, null, 2));
+        $('#mockInterviewAnswer').val('');
+        loadTurnsForCurrentSession();
+      } catch (err) { alert(err.message); }
+    });
+
     $(function () {
+      syncAuthUI();
       loadCompanyList();
     });
 
@@ -290,7 +652,10 @@
       const id = $('#companySelect').val();
       if (!id) return;
       try {
-        const res = await fetch(API_BASE + '/company/' + encodeURIComponent(id) + '/summary');
+        const res = await fetch(API_BASE + '/company/' + encodeURIComponent(id) + '/summary', {
+          headers: authHeaders(false),
+        });
+        if (checkUnauthorized(res)) return;
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const summary = await Response.prototype.json.call(res);
         showCompanySummary(summary);
@@ -300,6 +665,20 @@
     }
 
     $('#btnLoadCompany').on('click', loadSelectedCompany);
+
+    function bindSubTabs(containerId, resultWrapId, rawWrapId) {
+      $('#' + containerId).on('click', 'a[data-subtab]', function (e) {
+        e.preventDefault();
+        const t = $(this).data('subtab');
+        $('#' + containerId + ' .nav-link').removeClass('active');
+        $(this).addClass('active');
+        $('#' + resultWrapId).toggle(t === 'result');
+        $('#' + rawWrapId).toggle(t === 'raw');
+      });
+    }
+    bindSubTabs('analysisSubTabs', 'analysisResultWrap', 'analysisRawWrap');
+    bindSubTabs('evalSubTabs', 'evalResultWrap', 'evalRawWrap');
+    bindSubTabs('companySubTabs', 'companyResultWrap', 'companyRawWrap');
 
     $('#companySelect').on('change', function () {
       if ($('#autoLoadCompany').is(':checked')) {
@@ -312,7 +691,10 @@
       if (!id) return;
       const $btn = $(this).prop('disabled', true).text('수정 중...');
       try {
-        const res = await fetch(API_BASE + '/company/' + encodeURIComponent(id) + '/repair');
+        const res = await fetch(API_BASE + '/company/' + encodeURIComponent(id) + '/repair', {
+          headers: authHeaders(false),
+        });
+        if (checkUnauthorized(res)) return;
         const data = await Response.prototype.json.call(res);
         if (data.repaired) {
           $('#companyResultBody').html(renderCompanyUI(data));
@@ -345,6 +727,7 @@
       $('#statusLog').empty();
       $('#resultContent').hide();
       $('#resultTabs').hide();
+      $('#resultToolbar').hide();
       setBadge('분석 중...', 'primary');
 
       const formData = {
@@ -361,10 +744,11 @@
       try {
         const res = await fetch(API_BASE + '/analysis/start', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders(),
           body: JSON.stringify(formData),
         });
 
+        if (checkUnauthorized(res)) return;
         if (!res.ok) throw new Error('HTTP ' + res.status);
         if (!res.body) throw new Error('스트림 없음');
 
@@ -416,9 +800,13 @@
 
         if (sessionId) {
           setBadge('완료', 'success');
+          applySessionId(sessionId);
           if (!analysisData) {
             try {
-              const aRes = await fetch(API_BASE + '/analysis/' + encodeURIComponent(sessionId));
+              const aRes = await fetch(API_BASE + '/analysis/' + encodeURIComponent(sessionId), {
+                headers: authHeaders(false),
+              });
+              if (checkUnauthorized(aRes)) return;
               analysisData = aRes.ok ? await Response.prototype.json.call(aRes) : null;
             } catch (_) {}
           }
@@ -428,7 +816,8 @@
             const url = analysisIdForEval
               ? API_BASE + '/evaluation-template?analysisId=' + encodeURIComponent(analysisIdForEval)
               : API_BASE + '/evaluation-template?sessionId=' + encodeURIComponent(sessionId);
-            const r = await fetch(url);
+            const r = await fetch(url, { headers: authHeaders(false) });
+            if (checkUnauthorized(r)) return null;
             return r.ok ? await Response.prototype.json.call(r) : null;
           }
           let evalData = null;
@@ -442,7 +831,10 @@
           const companyId = analysisData && analysisData.companyId;
           if (companyId) {
             try {
-              const coRes = await fetch(API_BASE + '/company/' + encodeURIComponent(companyId));
+              const coRes = await fetch(API_BASE + '/company/' + encodeURIComponent(companyId), {
+                headers: authHeaders(false),
+              });
+              if (checkUnauthorized(coRes)) return;
               if (coRes.ok) companyData = await Response.prototype.json.call(coRes);
             } catch (_) {}
           }

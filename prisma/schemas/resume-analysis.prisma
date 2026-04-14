@@ -1,0 +1,11 @@
+model ResumeAnalysis {
+  id        String   @id
+  userId    String
+  rawText   String
+  summary   Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sessions  Session[]
+
+  @@map("resume_analyses")
+}

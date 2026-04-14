@@ -21,11 +21,21 @@ export function generateTemplateFromAnalysis(analysis: {
   const tech = analysis.techStack?.slice(0, 5) as string[] ?? [];
   const questions = analysis.actualQuestions?.slice(0, 5) as string[] ?? [];
 
+  const verdictOptions = [
+    'strong_hire',
+    'hire',
+    'lean_hire',
+    'lean_no_hire',
+    'no_hire',
+    'strong_no_hire',
+  ] as const;
+
   return { stages: [
     {
-      name:        '1차 면접',
-      description: `${analysis.companyName} ${analysis.jobRole} 직무·역량 평가`,
-      sections:    [
+      name:           '1차 면접',
+      description:    `${analysis.companyName} ${analysis.jobRole} 직무·역량 평가`,
+      verdictOptions: [...verdictOptions],
+      sections:       [
         {
           name:     '직무 기술 역량',
           weight:   35,

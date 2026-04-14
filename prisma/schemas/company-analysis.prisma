@@ -6,19 +6,19 @@ model CompanyAnalysis {
   jobRole                   String
   rawAdditionalInfo         String?
 
-  talents                   String
-  techStack                 String
-  cultureKeywords           String
-  interviewStyle            String
-  recommendedQuestionAngles String
-  interviewAvoid            String   @default("[]")
-  interviewSuccessTips      String   @default("[]")
-  interviewTips             String   @default("[]")
-  actualQuestions           String   @default("[]")
-  interviewProcess          String   @default("")
-  searchSources             String
-  rawSearchResults          String?
+  talents                   Json     @default("[]")
+  techStack                 Json     @default("[]")
+  cultureKeywords           Json     @default("[]")
+  interviewStyle            Json     @default("[]")
+  recommendedQuestionAngles Json     @default("[]")
+  interviewAvoid            Json     @default("[]")
+  interviewSuccessTips      Json     @default("[]")
+  interviewTips             Json     @default("[]")
+  actualQuestions           Json     @default("[]")
+  searchSources             Json     @default("[]")
+  rawSearchResults          Json?
 
+  interviewProcess          String   @default("")
   companySummary            String
   jobRoleSummary            String
   confidenceScore           Int      @default(0)

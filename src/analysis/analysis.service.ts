@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Response } from 'express';
 import { nanoid } from 'nanoid';
 import { createAnalysisAgent } from '../agent/interview.agent';
@@ -79,7 +79,7 @@ export class AnalysisService {
   constructor(private readonly prisma: PrismaService,
     private readonly companyService: CompanyService) {}
 
-  async startAnalysis(dto: StartAnalysisDto, res: Response) {
+  async startAnalysis(dto: StartAnalysisDto, userId: string, res: Response) {
     this.initSse(res);
     const send      = (event: SseEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
     const sessionId = nanoid();
@@ -87,7 +87,7 @@ export class AnalysisService {
     if (process.env.MOCK_ANALYSIS === 'true') {
       const companyName = dto.companyName ?? 'Mock Company';
       await this.runMockAnalysis(
-        companyName, dto.jobRole, dto.additionalInfo, sessionId, send, res,
+        companyName, dto.jobRole, dto.additionalInfo, sessionId, userId, send, res,
       );
 
       return;
@@ -104,11 +104,20 @@ export class AnalysisService {
 
         if (cached) {
           this.logger.log(`캐시 분석 반환: ${cached.id} (${cached.researchedAt})`);
+          await this.prisma.session.create({ data: {
+            id:                sessionId,
+            userId,
+            companyName,
+            jobRole:           dto.jobRole,
+            additionalInfo:    dto.additionalInfo ?? null,
+            companyAnalysisId: cached.id,
+            phase:             'READY',
+          } });
           send({
             type:       'cached',
             sessionId,
             analysisId: cached.id,
-            data:       this.formatAnalysis(cached as Record<string, unknown>),
+            data:       cached,
           });
           res.end();
 
@@ -118,6 +127,7 @@ export class AnalysisService {
 
       await this.prisma.session.create({ data: {
         id:             sessionId,
+        userId,
         companyName,
         jobRole:        dto.jobRole,
         additionalInfo: dto.additionalInfo ?? null,
@@ -141,14 +151,14 @@ export class AnalysisService {
       this.logger.error('분석 중 오류:', err instanceof Error ? err.message : err);
       if (err instanceof Error && err.stack) this.logger.debug(err.stack);
 
-      const analysis = await this.getAnalysis(sessionId);
+      const analysis = await this.loadAnalysisRow(sessionId);
 
       if (analysis) {
         this.logger.log('분석 결과 발견 — 에러에도 불구하고 complete 전송');
         send({
           type:       'complete',
           sessionId,
-          analysisId: (analysis as Record<string, unknown>).id as string,
+          analysisId: analysis.id,
           data:       analysis,
         });
       } else {
@@ -161,10 +171,31 @@ export class AnalysisService {
     }
   }
 
-  async getAnalysis(sessionId: string) {
-    const analysis = await this.prisma.companyAnalysis.findFirst({ where: { sessionId } });
+  async getAnalysis(sessionId: string, userId: string) {
+    const session = await this.prisma.session.findFirst({ where: {
+      id: sessionId, userId,
+    } });
 
-    return analysis ? this.formatAnalysis(analysis as Record<string, unknown>) : null;
+    if (!session) {
+      throw new NotFoundException('세션을 찾을 수 없습니다');
+    }
+
+    return this.loadAnalysisRow(sessionId);
+  }
+
+  /** Agent/내부용: 소유 검증 없이 세션에 연결된 분석 행만 조회 */
+  private async loadAnalysisRow(sessionId: string) {
+    const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
+
+    if (!session) return null;
+
+    if (session.companyAnalysisId) {
+      const byId = await this.prisma.companyAnalysis.findUnique({ where: { id: session.companyAnalysisId } });
+
+      if (byId) return byId;
+    }
+
+    return this.prisma.companyAnalysis.findFirst({ where: { sessionId } });
   }
 
   // ---------------------------------------------------------------------------
@@ -321,7 +352,7 @@ export class AnalysisService {
     }
 
     if (r?.success && r?.analysisId) {
-      let analysis = await this.getAnalysis(sessionId);
+      let analysis = await this.loadAnalysisRow(sessionId);
 
       if (!analysis) {
         analysis = await this.getAnalysisById(r.analysisId);
@@ -331,24 +362,23 @@ export class AnalysisService {
 
       if (analysis) {
         try {
-          const a = analysis as Record<string, unknown>;
           const template = generateTemplateFromAnalysis({
-            companyName:          a.companyName as string,
-            jobRole:              a.jobRole as string,
-            talents:              a.talents,
-            techStack:            a.techStack,
-            interviewStyle:       a.interviewStyle,
-            actualQuestions:      a.actualQuestions,
-            interviewAvoid:       a.interviewAvoid,
-            interviewSuccessTips: a.interviewSuccessTips,
+            companyName:          analysis.companyName,
+            jobRole:              analysis.jobRole,
+            talents:              analysis.talents as unknown[],
+            techStack:            analysis.techStack as unknown[],
+            interviewStyle:       analysis.interviewStyle as unknown[],
+            actualQuestions:      analysis.actualQuestions as unknown[],
+            interviewAvoid:       analysis.interviewAvoid as unknown[],
+            interviewSuccessTips: analysis.interviewSuccessTips as unknown[],
           });
           templateId = nanoid();
           await this.prisma.evaluationTemplate.create({ data: {
             id:                templateId,
             companyAnalysisId: r.analysisId,
-            companyName:       (analysis as Record<string, unknown>).companyName as string,
-            jobRole:           (analysis as Record<string, unknown>).jobRole as string,
-            template:          JSON.stringify(template),
+            companyName:       analysis.companyName,
+            jobRole:           analysis.jobRole,
+            template:          JSON.parse(JSON.stringify(template)),
           } });
           this.logger.log(`[평가 템플릿 자동 생성] templateId=${templateId}`);
           send({
@@ -378,6 +408,7 @@ export class AnalysisService {
     jobRole: string,
     additionalInfo: string | undefined,
     sessionId: string,
+    userId: string,
     send: (e: SseEvent) => void,
     res: Response,
   ) {
@@ -399,6 +430,7 @@ export class AnalysisService {
     try {
       await this.prisma.session.create({ data: {
         id:             sessionId,
+        userId,
         companyName,
         jobRole,
         additionalInfo: additionalInfo ?? null,
@@ -426,21 +458,21 @@ export class AnalysisService {
         companyName,
         jobRole,
         rawAdditionalInfo: additionalInfo ?? null,
-        talents:           JSON.stringify([
+        talents:           [
           '도전', '창의', '협력',
-        ]),
-        techStack: JSON.stringify([
+        ],
+        techStack: [
           '테스트', '모의', '데이터',
-        ]),
-        cultureKeywords:           JSON.stringify(['수평적', '자율']),
-        interviewStyle:            JSON.stringify(['모의 데이터입니다']),
-        recommendedQuestionAngles: JSON.stringify(['MOCK_ANALYSIS=true 로 테스트 중']),
-        interviewAvoid:            JSON.stringify([]),
-        interviewSuccessTips:      JSON.stringify([]),
-        interviewTips:             JSON.stringify([]),
-        actualQuestions:           JSON.stringify([]),
+        ],
+        cultureKeywords:           ['수평적', '자율'],
+        interviewStyle:            ['모의 데이터입니다'],
+        recommendedQuestionAngles: ['MOCK_ANALYSIS=true 로 테스트 중'],
+        interviewAvoid:            [],
+        interviewSuccessTips:      [],
+        interviewTips:             [],
+        actualQuestions:           [],
         interviewProcess:          '',
-        searchSources:             JSON.stringify([]),
+        searchSources:             [],
         companySummary:            `${companyName} 모의 분석 (테스트 모드)`,
         jobRoleSummary:            `${jobRole} 모의 요약`,
         confidenceScore:           50,
@@ -454,7 +486,7 @@ export class AnalysisService {
         },
       });
 
-      const analysis = await this.getAnalysis(sessionId);
+      const analysis = await this.loadAnalysisRow(sessionId);
       send({
         type: 'complete',
         sessionId,
@@ -476,35 +508,7 @@ export class AnalysisService {
   // ---------------------------------------------------------------------------
 
   private async getAnalysisById(analysisId: string) {
-    const analysis = await this.prisma.companyAnalysis.findUnique({ where: { id: analysisId } });
-
-    return analysis ? this.formatAnalysis(analysis as Record<string, unknown>) : null;
-  }
-
-  private formatAnalysis(analysis: Record<string, unknown>) {
-    const parseJson = (val: unknown): unknown[] => {
-      if (typeof val !== 'string') return [];
-
-      try {
-        return JSON.parse(val) as unknown[];
-      } catch {
-        return [];
-      }
-    };
-
-    return {
-      ...analysis,
-      talents:                   parseJson(analysis.talents),
-      techStack:                 parseJson(analysis.techStack),
-      cultureKeywords:           parseJson(analysis.cultureKeywords),
-      interviewStyle:            parseJson(analysis.interviewStyle),
-      recommendedQuestionAngles: parseJson(analysis.recommendedQuestionAngles),
-      interviewAvoid:            parseJson(analysis.interviewAvoid),
-      interviewSuccessTips:      parseJson(analysis.interviewSuccessTips),
-      interviewTips:             parseJson(analysis.interviewTips),
-      actualQuestions:           parseJson(analysis.actualQuestions),
-      searchSources:             parseJson(analysis.searchSources),
-    };
+    return this.prisma.companyAnalysis.findUnique({ where: { id: analysisId } });
   }
 
   private delay(ms: number) {

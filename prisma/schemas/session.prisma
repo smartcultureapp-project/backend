@@ -1,11 +1,18 @@
 model Session {
-  id                 String   @id
-  companyName        String
-  jobRole            String
-  additionalInfo     String?
-  phase              String   @default("PREPARING")
-  companyAnalysisId  String?
-  createdAt          DateTime @default(now())
+  id                  String   @id
+  userId              String
+  companyName         String
+  jobRole             String
+  additionalInfo      String?
+  phase               String   @default("PREPARING")
+  companyAnalysisId   String?
+  resumeAnalysisId    String?
+  evaluationSheetId   String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  resumeAnalysis ResumeAnalysis? @relation(fields: [resumeAnalysisId], references: [id])
+  interviewTurns InterviewTurn[]
 
   @@map("sessions")
 }

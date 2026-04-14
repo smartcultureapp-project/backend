@@ -3,7 +3,7 @@ model EvaluationTemplate {
   companyAnalysisId String
   companyName       String
   jobRole           String
-  template          String
+  template          Json
   createdAt         DateTime @default(now())
 
   @@map("evaluation_templates")

@@ -16,12 +16,7 @@ function getClient(): FirecrawlApp {
 
 export async function scrapeWithFirecrawl(url: string, purpose: string): Promise<ScrapeResult> {
   try {
-    const result = await getClient().scrapeUrl(url, { formats: ['markdown'] });
-
-    if (!result.success) {
-      return scrapeWithBasic(url, purpose);
-    }
-
+    const result = await getClient().scrape(url, { formats: ['markdown'] });
     const markdown = result.markdown ?? '';
 
     if (markdown.length < 100) {
