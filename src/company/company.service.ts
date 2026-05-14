@@ -1,5 +1,4 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { nanoid } from 'nanoid';
 import { createCompanyEnrichmentAgent } from '../agent/company-enrichment.agent';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateCompanyDto } from './dto/create-company.dto';
@@ -24,7 +23,6 @@ export class CompanyService {
     const logoUrl = dto.website ? logoUrlFromWebsite(dto.website) : undefined;
 
     const company = await this.prisma.company.create({ data: {
-      id:            nanoid(),
       name:          dto.name,
       nameEn:        dto.nameEn ?? null,
       industry:      dto.industry ?? null,

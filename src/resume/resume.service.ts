@@ -1,5 +1,4 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { nanoid } from 'nanoid';
 import { createResumeAnalysisAgent } from '../agent/resume-analysis.agent';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateResumeDto } from './dto/create-resume.dto';
@@ -11,13 +10,11 @@ export class ResumeService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(userId: string, dto: CreateResumeDto) {
-    const id = nanoid();
-
-    await this.prisma.resumeAnalysis.create({ data: {
-      id,
+    const row = await this.prisma.resumeAnalysis.create({ data: {
       userId,
       rawText: dto.rawText,
     } });
+    const { id } = row;
 
     if (dto.sessionId) {
       const session = await this.prisma.session.findFirst({ where: {

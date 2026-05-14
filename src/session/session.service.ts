@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { nanoid } from 'nanoid';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateInterviewTurnDto } from './dto/create-interview-turn.dto';
 import type { UpdateSessionDto } from './dto/update-session.dto';
@@ -55,7 +54,6 @@ export class SessionService {
     await this.findOneForUser(sessionId, userId);
 
     return this.prisma.interviewTurn.create({ data: {
-      id:              nanoid(),
       sessionId,
       question:        dto.question ?? null,
       answer:          dto.answer ?? null,

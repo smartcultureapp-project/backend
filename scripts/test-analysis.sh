@@ -1,7 +1,7 @@
 #!/bin/bash
 # 회사 분석 API 테스트
 # 서버가 MOCK_ANALYSIS=true 로 실행 중이어야 함
-# 터미널1: MOCK_ANALYSIS=true bun run start:dev
+# 터미널1: MOCK_ANALYSIS=true bun run dev
 # 터미널2: ./scripts/test-analysis.sh
 
 echo "POST /api/analysis/start"

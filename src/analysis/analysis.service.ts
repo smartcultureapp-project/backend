@@ -1,6 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Response } from 'express';
-import { nanoid } from 'nanoid';
 import { createAnalysisAgent } from '../agent/interview.agent';
 import { CompanyService } from '../company/company.service';
 import { generateTemplateFromAnalysis } from '../evaluation/evaluation-template-generator';
@@ -81,17 +80,18 @@ export class AnalysisService {
 
   async startAnalysis(dto: StartAnalysisDto, userId: string, res: Response) {
     this.initSse(res);
-    const send      = (event: SseEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
-    const sessionId = nanoid();
+    const send = (event: SseEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
 
     if (process.env.MOCK_ANALYSIS === 'true') {
       const companyName = dto.companyName ?? 'Mock Company';
       await this.runMockAnalysis(
-        companyName, dto.jobRole, dto.additionalInfo, sessionId, userId, send, res,
+        companyName, dto.jobRole, dto.additionalInfo, userId, send, res,
       );
 
       return;
     }
+
+    let sessionId: string | undefined;
 
     try {
       const company = await this.resolveCompany(dto);
@@ -104,8 +104,7 @@ export class AnalysisService {
 
         if (cached) {
           this.logger.log(`캐시 분석 반환: ${cached.id} (${cached.researchedAt})`);
-          await this.prisma.session.create({ data: {
-            id:                sessionId,
+          const session = await this.prisma.session.create({ data: {
             userId,
             companyName,
             jobRole:           dto.jobRole,
@@ -113,6 +112,7 @@ export class AnalysisService {
             companyAnalysisId: cached.id,
             phase:             'READY',
           } });
+          sessionId = session.id;
           send({
             type:       'cached',
             sessionId,
@@ -125,13 +125,13 @@ export class AnalysisService {
         }
       }
 
-      await this.prisma.session.create({ data: {
-        id:             sessionId,
+      const createdSession = await this.prisma.session.create({ data: {
         userId,
         companyName,
         jobRole:        dto.jobRole,
         additionalInfo: dto.additionalInfo ?? null,
       } });
+      sessionId = createdSession.id;
 
       const agent = createAnalysisAgent(
         this.prisma, sessionId, companyName, dto.jobRole, dto.additionalInfo, company.id,
@@ -151,16 +151,22 @@ export class AnalysisService {
       this.logger.error('분석 중 오류:', err instanceof Error ? err.message : err);
       if (err instanceof Error && err.stack) this.logger.debug(err.stack);
 
-      const analysis = await this.loadAnalysisRow(sessionId);
+      if (sessionId) {
+        const analysis = await this.loadAnalysisRow(sessionId);
 
-      if (analysis) {
-        this.logger.log('분석 결과 발견 — 에러에도 불구하고 complete 전송');
-        send({
-          type:       'complete',
-          sessionId,
-          analysisId: analysis.id,
-          data:       analysis,
-        });
+        if (analysis) {
+          this.logger.log('분석 결과 발견 — 에러에도 불구하고 complete 전송');
+          send({
+            type:       'complete',
+            sessionId,
+            analysisId: analysis.id,
+            data:       analysis,
+          });
+        } else {
+          send({
+            type: 'error', message: '분석 중 오류가 발생했습니다.',
+          });
+        }
       } else {
         send({
           type: 'error', message: '분석 중 오류가 발생했습니다.',
@@ -372,14 +378,13 @@ export class AnalysisService {
             interviewAvoid:       analysis.interviewAvoid as unknown[],
             interviewSuccessTips: analysis.interviewSuccessTips as unknown[],
           });
-          templateId = nanoid();
-          await this.prisma.evaluationTemplate.create({ data: {
-            id:                templateId,
+          const savedTemplate = await this.prisma.evaluationTemplate.create({ data: {
             companyAnalysisId: r.analysisId,
             companyName:       analysis.companyName,
             jobRole:           analysis.jobRole,
             template:          JSON.parse(JSON.stringify(template)),
           } });
+          templateId = savedTemplate.id;
           this.logger.log(`[평가 템플릿 자동 생성] templateId=${templateId}`);
           send({
             type: 'template_saved', templateId,
@@ -407,7 +412,6 @@ export class AnalysisService {
     companyName: string,
     jobRole: string,
     additionalInfo: string | undefined,
-    sessionId: string,
     userId: string,
     send: (e: SseEvent) => void,
     res: Response,
@@ -428,13 +432,13 @@ export class AnalysisService {
     ];
 
     try {
-      await this.prisma.session.create({ data: {
-        id:             sessionId,
+      const session = await this.prisma.session.create({ data: {
         userId,
         companyName,
         jobRole,
         additionalInfo: additionalInfo ?? null,
       } });
+      const sessionId = session.id;
 
       for (const step of mockSteps) {
         send({
@@ -451,9 +455,7 @@ export class AnalysisService {
       });
       await this.delay(500);
 
-      const analysisId = nanoid();
-      await this.prisma.companyAnalysis.create({ data: {
-        id:                analysisId,
+      const analysisRow = await this.prisma.companyAnalysis.create({ data: {
         sessionId,
         companyName,
         jobRole,
@@ -477,6 +479,7 @@ export class AnalysisService {
         jobRoleSummary:            `${jobRole} 모의 요약`,
         confidenceScore:           50,
       } });
+      const analysisId = analysisRow.id;
 
       await this.prisma.session.update({
         where: { id: sessionId },

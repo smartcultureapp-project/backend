@@ -1,5 +1,5 @@
 model CompanyAnalysis {
-  id                        String   @id
+  id                        String   @id @default(nanoid())
   sessionId                 String
   companyId                 String?
   companyName               String

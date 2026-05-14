@@ -62,7 +62,7 @@ bun run db:migrate
 ### 4. 서버 실행
 
 ```bash
-bun run start:dev
+bun run dev
 ```
 
 ### 5. 프론트엔드 (선택)
@@ -189,13 +189,17 @@ src/
 
 | 명령 | 설명 |
 |------|------|
-| `bun run start:dev` | 개발 서버 |
+| `bun run dev` | 개발 서버 |
 | `bun run build` | 빌드 |
 | `bun run typecheck` | `tsc --noEmit` |
 | `bun run lint` | ESLint |
 | `bun run test` | Jest |
 | `bun run test:e2e` | E2E (설정 시) |
-| `bun run db:push` / `db:migrate` | Prisma |
+| `bun run db:generate` | Prisma Client 생성 |
+| `bun run db:push` | 스키마를 DB에 직접 반영 (개발용) |
+| `bun run db:migrate` | `prisma migrate dev` |
+| `bun run db:deploy` | `prisma migrate deploy` (배포/CI) |
+| `bun run db:studio` | Prisma Studio |
 
 ## License
 

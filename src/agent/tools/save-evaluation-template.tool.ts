@@ -1,5 +1,4 @@
 import { createTool } from '@mastra/core/tools';
-import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import type { PrismaService } from '@/prisma/prisma.service';
 
@@ -59,16 +58,13 @@ export function createSaveEvaluationTemplateTool(prismaService: PrismaService,
         };
       }
 
-      const templateId = nanoid();
-
       try {
         const analysis = await prismaService.companyAnalysis.findFirst({
           where:  { sessionId },
           select: { id: true },
         });
 
-        await prismaService.evaluationTemplate.create({ data: {
-          id:                templateId,
+        const row = await prismaService.evaluationTemplate.create({ data: {
           companyAnalysisId: analysis?.id ?? sessionId,
           companyName,
           jobRole,
@@ -76,13 +72,13 @@ export function createSaveEvaluationTemplateTool(prismaService: PrismaService,
         } });
 
         return {
-          success: true, templateId,
+          success: true, templateId: row.id,
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
         return {
-          success: false, templateId, error: message,
+          success: false, templateId: '', error: message,
         };
       }
     },

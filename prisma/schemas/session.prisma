@@ -1,5 +1,5 @@
 model Session {
-  id                  String   @id
+  id                  String   @id @default(nanoid())
   userId              String
   companyName         String
   jobRole             String

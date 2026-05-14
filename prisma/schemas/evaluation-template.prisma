@@ -1,5 +1,5 @@
 model EvaluationTemplate {
-  id                String   @id
+  id                String   @id @default(nanoid())
   companyAnalysisId String
   companyName       String
   jobRole           String

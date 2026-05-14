@@ -1,5 +1,4 @@
 import { createTool } from '@mastra/core/tools';
-import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import type { PrismaService } from '@/prisma/prisma.service';
 
@@ -64,11 +63,8 @@ export function createSaveAnalysisTool(
     description: '수집된 회사 분석 결과를 구조화하여 DB에 저장한다. 모든 조사 완료 후 딱 한 번만 호출한다.',
     inputSchema: AnalysisSchema,
     execute:     async ({ context }) => {
-      const analysisId = nanoid();
-
       try {
-        await prismaService.companyAnalysis.create({ data: {
-          id:                        analysisId,
+        const row = await prismaService.companyAnalysis.create({ data: {
           sessionId,
           companyId:                 companyId ?? null,
           companyName,
@@ -90,6 +86,7 @@ export function createSaveAnalysisTool(
           confidenceScore:           context.confidence_score,
           researchedAt:              new Date(),
         } });
+        const analysisId = row.id;
 
         await prismaService.session.update({
           where: { id: sessionId },
@@ -140,7 +137,7 @@ export function createSaveAnalysisTool(
         const message = err instanceof Error ? err.message : String(err);
 
         return {
-          success: false, analysisId, error: message,
+          success: false, error: message,
         };
       }
     },

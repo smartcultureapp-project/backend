@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { generateObject } from 'ai';
-import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { getAgentModel, toMastraAgentModel } from '../agent/model-provider';
 import type { CompanyAnalysis, Session } from '../generated/prisma/client';
@@ -62,7 +61,6 @@ export class MockInterviewService {
       const question = `[모의 ${nextIndex + 1}] ${ctx.session.companyName} ${ctx.session.jobRole} 직무에 지원한 이유를 2~3문장으로 말해보세요.`;
 
       const turn = await this.prisma.interviewTurn.create({ data: {
-        id:        nanoid(),
         sessionId,
         question,
         turnIndex: nextIndex,
@@ -87,7 +85,6 @@ export class MockInterviewService {
     });
 
     const turn = await this.prisma.interviewTurn.create({ data: {
-      id:        nanoid(),
       sessionId,
       question:  object.question,
       turnIndex: nextIndex,

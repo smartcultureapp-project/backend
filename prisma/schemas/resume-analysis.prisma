@@ -1,5 +1,5 @@
 model ResumeAnalysis {
-  id        String   @id
+  id        String   @id @default(nanoid())
   userId    String
   rawText   String
   summary   Json?
