@@ -36,7 +36,7 @@ async function bootstrap() {
 
   if (process.env.API_DOCS_ENABLED !== 'false') {
     setupSwaggerAndScalar(app);
-    logger.log('API 문서: Scalar /api/docs/scalar · Swagger /api/docs/swagger · OpenAPI /api/docs/openapi.json');
+    logger.log('API 문서: /api/docs');
   }
 
   await app.listen(process.env.PORT ?? 3000);
