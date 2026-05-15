@@ -18,6 +18,9 @@ RUN bun install --frozen-lockfile
 # ================================
 FROM base AS build
 
+ARG DATABASE_URL
+ENV DATABASE_URL=${DATABASE_URL}
+
 COPY . .
 
 # Reinstall to fix symlinks after copying source
