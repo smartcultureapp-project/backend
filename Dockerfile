@@ -18,7 +18,9 @@ RUN bun install --frozen-lockfile
 # ================================
 FROM base AS build
 
-ARG DATABASE_URL
+# Default dummy value so `docker build .` works locally without --build-arg.
+# prisma generate doesn't actually connect to the DB; the value just needs to exist for prisma.config.ts.
+ARG DATABASE_URL=postgresql://build:build@localhost:5432/build
 ENV DATABASE_URL=${DATABASE_URL}
 
 COPY . .
@@ -45,20 +47,18 @@ RUN apt-get update -y && \
     apt-get install -y openssl ca-certificates libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY package.json bun.lock ./
+COPY --chown=bun:bun package.json bun.lock ./
 
 RUN bun install --frozen-lockfile --production
 
 # Copy Prisma schema (for migrations)
-COPY --from=build /app/prisma ./prisma
+COPY --from=build --chown=bun:bun /app/prisma ./prisma
 
 # Copy built application
-COPY --from=build /app/dist ./dist
+COPY --from=build --chown=bun:bun /app/dist ./dist
 
 # Create temp directory with proper permissions
-RUN mkdir -p /app/tmp && chmod 777 /app/tmp
-
-RUN chown -R bun:bun /app
+RUN mkdir -p /app/tmp && chown -R bun:bun /app/tmp && chmod 777 /app/tmp
 
 EXPOSE 8000
 
