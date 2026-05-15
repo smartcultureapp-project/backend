@@ -49,11 +49,8 @@ COPY package.json bun.lock ./
 
 RUN bun install --frozen-lockfile --production
 
-# Copy Prisma schema and generated client
+# Copy Prisma schema (for migrations)
 COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/prisma.config.ts ./prisma.config.ts
-COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=build /app/node_modules/@prisma/client ./node_modules/@prisma/client
 
 # Copy built application
 COPY --from=build /app/dist ./dist
