@@ -27,6 +27,7 @@ import {
   SessionResponseDto,
 } from '../docs/response-schemas';
 import { CreateInterviewTurnDto } from './dto/create-interview-turn.dto';
+import { LiveHintDto } from './dto/live-hint.dto';
 import { SubmitInterviewAnswerDto } from './dto/submit-interview-answer.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { MockInterviewService } from './mock-interview.service';
@@ -116,6 +117,21 @@ export class SessionController {
     @Body() dto: SubmitInterviewAnswerDto,
     @Req() req: Request) {
     return this.mockInterviewService.submitAnswer(id, req.user!.sub, dto);
+  }
+
+  @Post(':id/interview/live-hint')
+  @ApiOperation({
+    summary:     '실시간 코칭 힌트(무음 시점)',
+    description: '답변 도중 무음 시점에 지금까지의 발화를 보내 한 문장 코칭을 받습니다.',
+  })
+  @ApiParam({
+    name: 'id', description: 'Session ID',
+  })
+  @ApiBody({ type: LiveHintDto })
+  async interviewLiveHint(@Param('id') id: string,
+    @Body() dto: LiveHintDto,
+    @Req() req: Request) {
+    return this.mockInterviewService.liveHint(id, req.user!.sub, dto.partial);
   }
 
   @Post(':id/interview/report')

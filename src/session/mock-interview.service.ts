@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { z } from 'zod';
+import { generateQuickText } from '../agent/generate-quick';
 import { generateStructured } from '../agent/generate-structured';
 import type { CompanyAnalysis, Session } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -34,6 +35,8 @@ const PanelQuestionSchema = z.object({
   interviewerId: z.string().describe("이번 질문을 던질 면접관 id: 'lead'|'tech'|'hr'"),
   questionType:  z.string().describe("질문 유형: 'intro'|'technical'|'behavioral'|'culture'"),
   question:      z.string().describe('지원자에게 물을 한 문장 질문 (한국어)'),
+  concluded:     z.boolean().describe('핵심 영역이 충분히 검증되어 더 질문할 필요가 없으면 true(면접 종료 권고). 아니면 false'),
+  concludeReason: z.string().describe('concluded=true일 때 종료 사유 1문장(한국어). false면 빈 문자열'),
 });
 
 /** 답변마다 평가하는 5개 역량 축 (레이더 차트용). 각 1~5점. */
@@ -115,6 +118,12 @@ export const CATEGORY_LABELS: Record<keyof typeof CategoryScoresSchema.shape, st
 const MAX_CONTEXT = 14_000;
 const MAX_RESUME  = 12_000;
 
+// 꼬리물기 면접이라 질문 수는 고정하지 않는다.
+// - MAX_QUESTIONS: 하드 상한(이 수에 도달하면 무조건 종료)
+// - MIN_QUESTIONS_BEFORE_CONCLUDE: 이 수 이전에는 패널이 조기 종료를 권고해도 무시(너무 이른 종료 방지)
+const MAX_QUESTIONS = 13;
+const MIN_QUESTIONS_BEFORE_CONCLUDE = 6;
+
 interface SpeechAggregate {
   count:   number;
   avgWpm:  number;
@@ -195,6 +204,17 @@ export class MockInterviewService {
       .filter(t => t.question && t.answer)
       .map(t => ({ question: t.question as string, answer: t.answer as string }));
 
+    // 하드 상한 도달 → 더 묻지 않고 종료 신호 반환(턴 생성 안 함)
+    if (nextIndex >= MAX_QUESTIONS) {
+      this.logger.log(`면접 종료(상한) session=${sessionId} asked=${nextIndex}`);
+
+      return {
+        done:          true,
+        concludeReason: `최대 질문 수(${MAX_QUESTIONS}개)에 도달했습니다.`,
+        turnIndex:     nextIndex,
+      };
+    }
+
     if (process.env.MOCK_ANALYSIS === 'true') {
       const interviewerId = INTERVIEWER_IDS[nextIndex % INTERVIEWER_IDS.length];
       const question = `[모의 ${nextIndex + 1}] ${ctx.session.companyName} ${ctx.session.jobRole} 직무에 지원한 이유를 2~3문장으로 말해보세요.`;
@@ -248,6 +268,17 @@ export class MockInterviewService {
     } else {
       const prompt = this.buildPanelQuestionPrompt(ctx, asked, nextIndex, history);
       const object = await generateStructured(PanelQuestionSchema, prompt);
+
+      // 패널이 충분히 검증했다고 판단(concluded)하고 최소 질문 수를 넘겼으면 조기 종료
+      if (object.concluded && history.length >= MIN_QUESTIONS_BEFORE_CONCLUDE) {
+        this.logger.log(`면접 조기 종료(패널 판단) session=${sessionId} asked=${nextIndex}`);
+
+        return {
+          done:           true,
+          concludeReason: object.concludeReason?.trim() || '면접관 패널이 충분히 검증했다고 판단했습니다.',
+          turnIndex:      nextIndex,
+        };
+      }
 
       interviewerId = INTERVIEWER_IDS.includes(object.interviewerId)
         ? object.interviewerId
@@ -570,6 +601,68 @@ ${ctx.resumeSnippet || '(없음)'}
     };
   }
 
+  /**
+   * 무음(문장 끝) 시점 실시간 코칭 힌트.
+   * 지금까지의 발화(partial)를 Haiku로 즉시 평가해 한 문장 코칭을 돌려준다.
+   * latencyMs 로 실제 왕복 지연을 함께 반환한다.
+   */
+  async liveHint(sessionId: string,
+    userId: string,
+    partial: string): Promise<{ hint: string; latencyMs: number }> {
+    const started = Date.now();
+    const trimmed = (partial ?? '').trim();
+
+    // 발화가 너무 짧으면 코칭 의미가 없으니 건너뛴다.
+    if (trimmed.length < 10) {
+      return { hint: '', latencyMs: Date.now() - started };
+    }
+
+    // 가벼운 소유권 확인(loadContext 풀 로드는 피함 — 실시간 경로라 빨라야 함).
+    const session = await this.prisma.session.findFirst({
+      where:  { id: sessionId, userId },
+      select: { id: true },
+    });
+
+    if (!session) {
+      throw new NotFoundException(`Session(${sessionId})를 찾을 수 없습니다`);
+    }
+
+    const pending = await this.prisma.interviewTurn.findFirst({
+      where:   { sessionId, question: { not: null }, answer: null },
+      orderBy: { createdAt: 'desc' },
+      select:  { question: true },
+    });
+
+    if (!pending?.question) {
+      return { hint: '', latencyMs: Date.now() - started };
+    }
+
+    let hint = '';
+
+    try {
+      hint = await generateQuickText(this.buildLiveHintPrompt(pending.question, trimmed));
+    } catch {
+      hint = '';
+    }
+
+    return { hint: hint.replace(/\s+/g, ' ').trim().slice(0, 90), latencyMs: Date.now() - started };
+  }
+
+  private buildLiveHintPrompt(question: string, partial: string) {
+    return `당신은 한국어 모의면접의 실시간 면접 코치입니다. 지원자가 아래 질문에 답하는 도중(말하는 중)이며, 방금 잠깐 멈췄습니다. 지금까지의 발화를 보고 "지금 바로 보완하면 좋을 점"을 딱 한 문장으로 즉시 코칭하세요.
+
+규칙:
+- 질문을 대신 답하지 말고, 방향만 짧게 제시합니다(예: "결론부터 말하면 더 좋아요", "구체적 수치를 한 가지 덧붙여 보세요").
+- 35자 이내, 한국어 한 문장만 출력. 따옴표·머리말·이모지 금지.
+- 잘 말하고 있으면 "지금 흐름 좋아요, 그대로 이어가세요"처럼 짧게.
+
+[면접 질문]
+${question}
+
+[지원자가 지금까지 말한 내용]
+${partial.slice(0, 1_200)}`;
+  }
+
   private buildPanelQuestionPrompt(ctx: LoadedInterviewContext,
     alreadyAsked: string[],
     turnIndex: number,
@@ -627,11 +720,12 @@ ${historyBlock}
 ## ${askedBlock}
 
 지침:
-1. discussion: 면접관들이 "직전 답변에서 무엇이 모호하거나 더 깊게 파고들 만한지"를 2~3개 발언으로 짧게 토론(지원자에게 안 보임). 직전 답변에서 검증할 구체적 지점(주장의 근거·수치·기술 선택 이유·트레이드오프·실제 기여도 등)을 짚으세요.
+1. discussion: 면접관들이 "직전 답변에서 무엇이 모호하거나 더 깊게 파고들 만한지"를 2~3개 발언으로 짧게 토론(지원자에게 안 보임). tech/hr가 먼저 의견을 내고, **마지막 발언은 반드시 주면접관(lead)이 토론을 종합해 "이번 꼬리질문을 무엇으로/누가 물을지" 최종 결정을 내리는 내용**이어야 합니다(주면접관이 면접 흐름을 조율·결정). 직전 답변에서 검증할 구체적 지점(주장의 근거·수치·기술 선택 이유·트레이드오프·실제 기여도 등)을 짚으세요.
 2. **꼬리물기 우선**: 직전 답변이 있으면, 이번 질문은 원칙적으로 그 답변을 더 깊게 파고드는 후속 질문이어야 합니다. 다음 중 하나로 파고드세요 — (a) 답변 속 구체적 주장/결정의 "왜"와 "어떻게", (b) 답변에서 빠진 근거·수치·결과, (c) 답변이 모호하거나 추상적인 부분의 구체화, (d) 답변에서 드러난 트레이드오프/대안 검토, (e) "그 상황에서 ~했다면 어땠을까" 식의 가정 시나리오. 직전 답변의 핵심 표현을 질문에 인용해 자연스럽게 이어가세요(예: "방금 말씀하신 OO 부분에서, ~").
 3. 단, 직전 답변이 이미 충분히 깊게 다뤄졌거나 주제를 2~3턴 이상 파고들어 더 캘 것이 없다면, 새로운 주제(이력서의 다른 프로젝트·직무 역량·컬처핏)로 전환하세요. 한 주제에 과도하게 머무르지 마세요.
-4. 그 결론으로 interviewerId(질문할 면접관), questionType(intro/technical/behavioral/culture), question(한 문장 질문)을 정하세요. 직전 답변을 던진 면접관이 이어서 파고들거나, 다른 관점의 면접관이 새로 끼어들 수 있습니다.
-5. 질문은 직무·회사·이력서와 연결되게, 유형이 한쪽에 치우치지 않게 다양화하세요. 기술면접관은 기술 깊이를, 인사담당관은 컬처핏/경험을 파고듭니다. 이미 나온 질문과 똑같은 질문은 금지하되, 같은 주제를 더 깊이 파고드는 후속 질문은 허용됩니다.${hasResume ? '\n6. **위 이력서가 제공되었으니, 직전 답변을 파고들 거리가 없을 때는 이력서에 적힌 실제 프로젝트·기술·경험을 직접 파고드는 질문을 던지세요**(예: "이력서의 OO 프로젝트에서 ~을 어떻게 구현/해결하셨나요?").' : ''}`;
+4. **주면접관(lead)의 결정에 따라** interviewerId(질문할 면접관), questionType(intro/technical/behavioral/culture), question(한 문장 질문)을 정하세요. 주면접관이 직접 물을 수도, 더 적합한 면접관(tech/hr)에게 넘길 수도 있습니다(라우팅 결정도 주면접관 몫).
+5. 질문은 직무·회사·이력서와 연결되게, 유형이 한쪽에 치우치지 않게 다양화하세요. 기술면접관은 기술 깊이를, 인사담당관은 컬처핏/경험을 파고듭니다. 이미 나온 질문과 똑같은 질문은 금지하되, 같은 주제를 더 깊이 파고드는 후속 질문은 허용됩니다.
+6. **종료 판단(concluded)**: 핵심 영역(지원동기·기술 깊이·행동/컬처핏)이 충분히 검증되었고 더 캐물어 얻을 정보가 적다면 concluded=true, concludeReason에 한 문장 사유를 넣어 면접 마무리를 권고하세요. 단 **너무 이르게 끝내지 말고**(보통 7~12번째 질문 사이에서 판단), 아직 검증할 영역이 남았으면 concluded=false, concludeReason은 빈 문자열. concluded=true여도 question 필드에는 마지막으로 던질 만한 질문을 채워 두세요(시스템이 종료 여부를 최종 결정합니다).${hasResume ? '\n7. **위 이력서가 제공되었으니, 직전 답변을 파고들 거리가 없을 때는 이력서에 적힌 실제 프로젝트·기술·경험을 직접 파고드는 질문을 던지세요**(예: "이력서의 OO 프로젝트에서 ~을 어떻게 구현/해결하셨나요?").' : ''}`;
   }
 
   private buildPanelEvaluationPrompt(ctx: LoadedInterviewContext,
