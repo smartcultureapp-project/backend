@@ -23,8 +23,8 @@ COPY . .
 # Reinstall to fix symlinks after copying source
 RUN bun install --frozen-lockfile
 
-# Generate Prisma Client (DATABASE_URL is not used during generate, only to satisfy prisma.config.ts parsing)
-RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" bunx prisma generate
+# Generate Prisma Client
+RUN bunx prisma generate
 
 # Build application
 RUN bun run build
