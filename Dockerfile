@@ -58,10 +58,10 @@ COPY --from=build /app/dist ./dist
 # Create temp directory with proper permissions
 RUN mkdir -p /app/tmp && chmod 777 /app/tmp
 
-RUN chown -R node:node /app
+RUN chown -R bun:bun /app
 
 EXPOSE 8000
 
-USER node
+USER bun
 
-CMD ["node", "dist/main"]
+CMD ["bun", "run", "dist/main"]
