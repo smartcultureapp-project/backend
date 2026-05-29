@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createCompanyEnrichmentAgent } from '../agent/company-enrichment.agent';
+import { agentRunOptions } from '../agent/agent-run-options';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateCompanyDto } from './dto/create-company.dto';
 
@@ -93,7 +94,7 @@ export class CompanyService {
 
       const prompt = `회사명: ${company.name}${company.website ? `\n웹사이트: ${company.website}` : ''}\n\n위 회사의 nameEn, description, employeeCount, foundedYear, stockTicker를 조사하여 save_company_info로 저장하세요. description은 공식 소개에서, employeeCount는 공식/신뢰 출처에서만.`;
 
-      await agent.generate(prompt, { maxSteps: 20 });
+      await agent.generateVNext(prompt, agentRunOptions(20));
 
       const updatedCompany = await this.prisma.company.findUnique({ where: { id } });
       const hasEnrichment = updatedCompany && (

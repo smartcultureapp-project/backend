@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createResumeAnalysisAgent } from '../agent/resume-analysis.agent';
+import { agentRunOptions } from '../agent/agent-run-options';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateResumeDto } from './dto/create-resume.dto';
 
@@ -89,8 +90,8 @@ export class ResumeService {
         this.logger.log(`이력서 분석 시작: ${resumeAnalysisId}`);
 
         const agent = createResumeAnalysisAgent(this.prisma, resumeAnalysisId);
-        await agent.generate(`아래 이력서/자기소개서 텍스트를 분석하여 save_resume_summary 툴로 저장하세요.\n\n---\n${rawText}\n---`,
-          { maxSteps: 5 });
+        await agent.generateVNext(`아래 이력서/자기소개서 텍스트를 분석하여 save_resume_summary 툴로 저장하세요.\n\n---\n${rawText}\n---`,
+          agentRunOptions(5));
 
         this.logger.log(`이력서 분석 완료: ${resumeAnalysisId}`);
       } catch (err) {

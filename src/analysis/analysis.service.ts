@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Response } from 'express';
 import { createAnalysisAgent } from '../agent/interview.agent';
+import { agentRunOptions } from '../agent/agent-run-options';
 import { CompanyService } from '../company/company.service';
 import { generateTemplateFromAnalysis } from '../evaluation/evaluation-template-generator';
 import { PrismaService } from '../prisma/prisma.service';
@@ -136,17 +137,14 @@ export class AnalysisService {
       const agent = createAnalysisAgent(
         this.prisma, sessionId, companyName, dto.jobRole, dto.additionalInfo, company.id,
       );
-      this.logger.log('Agent 생성 완료, generate() 실행');
+      this.logger.log('Agent 생성 완료, generateVNext() 실행');
 
-      await agent.generate(`회사명: ${companyName}\n지원 직군: ${dto.jobRole}\n추가 정보: ${dto.additionalInfo || '없음'}\n\n위 정보를 바탕으로 company-analysis.md의 **딥리서치** 지침에 따라\n1라운드 기초 조사 → 2라운드 갭 분석 및 심화 검색 → (필요시) 3라운드 보완까지 수행한 뒤,\n수집한 모든 정보를 save_analysis 툴로 저장하세요.`,
-        {
-          maxSteps:     60,
-          onStepFinish: async step => {
-            await this.handleStep(step as StepPayload, sessionId, send);
-          },
-        });
+      await agent.generateVNext(`회사명: ${companyName}\n지원 직군: ${dto.jobRole}\n추가 정보: ${dto.additionalInfo || '없음'}\n\n위 정보를 바탕으로 company-analysis.md의 **딥리서치** 지침에 따라\n1라운드 기초 조사 → 2라운드 갭 분석 및 심화 검색 → (필요시) 3라운드 보완까지 수행한 뒤,\n수집한 모든 정보를 save_analysis 툴로 저장하세요.`,
+        agentRunOptions(60, async step => {
+          await this.handleStep(step as StepPayload, sessionId, send);
+        }));
 
-      this.logger.log('Agent generate() 완료');
+      this.logger.log('Agent generateVNext() 완료');
     } catch (err) {
       this.logger.error('분석 중 오류:', err instanceof Error ? err.message : err);
       if (err instanceof Error && err.stack) this.logger.debug(err.stack);
@@ -203,10 +201,6 @@ export class AnalysisService {
 
     return this.prisma.companyAnalysis.findFirst({ where: { sessionId } });
   }
-
-  // ---------------------------------------------------------------------------
-  // Company resolve
-  // ---------------------------------------------------------------------------
 
   private async resolveCompany(dto: StartAnalysisDto) {
     if (dto.companyId) {
