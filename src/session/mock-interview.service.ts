@@ -115,6 +115,37 @@ export const CATEGORY_LABELS: Record<keyof typeof CategoryScoresSchema.shape, st
 const MAX_CONTEXT = 14_000;
 const MAX_RESUME  = 12_000;
 
+interface SpeechAggregate {
+  count:   number;
+  avgWpm:  number;
+  fillers: number;
+  pauses:  number;
+}
+
+/** 답변 턴들의 STT 발화 지표를 누적 (최종 리포트 전달력 코멘트용). 없으면 null. */
+function aggregateSpeech(turns: {
+  speechMetrics: unknown;
+}[]): SpeechAggregate | null {
+  const list = turns
+    .map(t => t.speechMetrics as {
+      wordsPerMin?: number; fillerCount?: number; pauseCount?: number;
+    } | null)
+    .filter((m): m is {
+      wordsPerMin?: number; fillerCount?: number; pauseCount?: number;
+    } => !!m);
+
+  if (list.length === 0) {
+    return null;
+  }
+
+  return {
+    count:   list.length,
+    avgWpm:  Math.round(list.reduce((s, m) => s + (m.wordsPerMin ?? 0), 0) / list.length),
+    fillers: list.reduce((s, m) => s + (m.fillerCount ?? 0), 0),
+    pauses:  list.reduce((s, m) => s + (m.pauseCount ?? 0), 0),
+  };
+}
+
 @Injectable()
 export class MockInterviewService {
   private readonly logger = new Logger(MockInterviewService.name);
@@ -170,23 +201,47 @@ export class MockInterviewService {
       };
     }
 
-    const prompt = this.buildPanelQuestionPrompt(ctx, asked, nextIndex);
+    let questionText: string;
+    let interviewerId: string;
+    let questionType: string;
+    let discussion: {
+      interviewerId: string; comment: string;
+    }[];
 
-    const object = await generateStructured(PanelQuestionSchema, prompt);
-    const interviewerId = INTERVIEWER_IDS.includes(object.interviewerId)
-      ? object.interviewerId
-      : INTERVIEWER_IDS[nextIndex % INTERVIEWER_IDS.length];
-    const questionType = QUESTION_TYPES.includes(object.questionType)
-      ? object.questionType
-      : QUESTION_TYPES[nextIndex % QUESTION_TYPES.length];
+    if (nextIndex === 0) {
+      // 실제 면접처럼 첫 턴은 주면접관의 인사 + 자기소개 요청으로 시작(LLM 호출 안 함)
+      interviewerId = 'lead';
+      questionType = 'intro';
+      questionText = `안녕하세요, ${ctx.session.companyName} ${ctx.session.jobRole} 직무 면접에 참여해 주셔서 감사합니다. 저는 오늘 면접을 진행할 주면접관입니다. 본격적인 질문에 앞서, 먼저 1분 정도로 간단히 자기소개를 부탁드립니다.`;
+      discussion = [
+        {
+          interviewerId: 'lead', comment: '인사와 자기소개로 분위기를 풀고 시작합시다.',
+        },
+      ];
+    } else {
+      const prompt = this.buildPanelQuestionPrompt(ctx, asked, nextIndex);
+      const object = await generateStructured(PanelQuestionSchema, prompt);
+
+      interviewerId = INTERVIEWER_IDS.includes(object.interviewerId)
+        ? object.interviewerId
+        : INTERVIEWER_IDS[nextIndex % INTERVIEWER_IDS.length];
+      questionType = QUESTION_TYPES.includes(object.questionType)
+        ? object.questionType
+        : QUESTION_TYPES[nextIndex % QUESTION_TYPES.length];
+      questionText = object.question;
+      discussion = (object.discussion ?? []).map(d => ({
+        interviewerId: d.interviewerId ?? 'lead',
+        comment:       d.comment ?? '',
+      }));
+    }
 
     const turn = await this.prisma.interviewTurn.create({ data: {
       sessionId,
-      question:   object.question,
+      question:  questionText,
       interviewerId,
       questionType,
-      discussion: object.discussion,
-      turnIndex:  nextIndex,
+      discussion,
+      turnIndex: nextIndex,
     } });
 
     await this.prisma.session.update({
@@ -326,7 +381,7 @@ export class MockInterviewService {
       return report;
     }
 
-    const prompt = this.buildFinalReportPrompt(ctx, turns);
+    const prompt = this.buildFinalReportPrompt(ctx, turns, aggregateSpeech(turns));
     const report = await generateStructured(FinalReportSchema, prompt);
 
     await this.prisma.session.update({
@@ -421,15 +476,23 @@ ${ctx.resumeSnippet || '(없음)'}
     let resumeSnippet = '';
     let resumeSummaryText = '';
 
-    if (session.resumeAnalysisId) {
-      const resume = await this.prisma.resumeAnalysis.findUnique({ where: { id: session.resumeAnalysisId } });
+    // 세션에 연결된 이력서 우선, 없으면 이 사용자의 가장 최근 이력서로 폴백
+    let resume = session.resumeAnalysisId
+      ? await this.prisma.resumeAnalysis.findUnique({ where: { id: session.resumeAnalysisId } })
+      : null;
 
-      if (resume) {
-        resumeSnippet = resume.rawText.slice(0, MAX_RESUME);
-        resumeSummaryText = resume.summary
-          ? JSON.stringify(resume.summary).slice(0, MAX_CONTEXT)
-          : '';
-      }
+    if (!resume) {
+      resume = await this.prisma.resumeAnalysis.findFirst({
+        where:   { userId },
+        orderBy: { updatedAt: 'desc' },
+      });
+    }
+
+    if (resume) {
+      resumeSnippet = resume.rawText.slice(0, MAX_RESUME);
+      resumeSummaryText = resume.summary
+        ? JSON.stringify(resume.summary).slice(0, MAX_CONTEXT)
+        : '';
     }
 
     let evaluationSnippet = '';
@@ -465,6 +528,7 @@ ${ctx.resumeSnippet || '(없음)'}
   private buildPanelQuestionPrompt(ctx: LoadedInterviewContext,
     alreadyAsked: string[],
     turnIndex: number) {
+    const hasResume = !!(ctx.resumeSummaryText || ctx.resumeSnippet);
     const askedBlock = alreadyAsked.length
       ? `이미 나온 질문 (반복 금지):\n${alreadyAsked.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
       : '(아직 질문 없음 — 첫 질문은 주면접관(lead)이 자기소개/지원동기로 시작)';
@@ -496,7 +560,7 @@ ${ctx.resumeSnippet || '(없음)'}
 지침:
 1. discussion: 면접관들이 "직전 답변 흐름상 무엇을 더 봐야 하는지" 2~3개 발언으로 짧게 토론(지원자에게 안 보임).
 2. 그 결론으로 interviewerId(질문할 면접관), questionType(intro/technical/behavioral/culture), question(한 문장 질문)을 정하세요.
-3. 질문은 직무·회사·이력서와 연결되게, 유형이 한쪽에 치우치지 않게 다양화하세요. 기술면접관은 기술 깊이를, 인사담당관은 컬처핏/경험을 파고듭니다.`;
+3. 질문은 직무·회사·이력서와 연결되게, 유형이 한쪽에 치우치지 않게 다양화하세요. 기술면접관은 기술 깊이를, 인사담당관은 컬처핏/경험을 파고듭니다.${hasResume ? '\n4. **위 이력서가 제공되었으니, 이력서에 적힌 실제 프로젝트·기술·경험을 직접 파고드는 질문을 적극적으로 던지세요**(예: "이력서의 OO 프로젝트에서 ~을 어떻게 구현/해결하셨나요?"). 전체 질문의 절반 이상이 이력서 내용과 직접 연결되게 하세요.' : ''}`;
   }
 
   private buildPanelEvaluationPrompt(ctx: LoadedInterviewContext,
@@ -535,10 +599,15 @@ ${answer}
   private buildFinalReportPrompt(ctx: LoadedInterviewContext,
     turns: {
       question: string | null; answer: string | null; score: number | null;
-    }[]) {
+    }[],
+    speech: SpeechAggregate | null) {
     const qa = turns
       .map((t, i) => `Q${i + 1} (${t.score ?? '-'}/5): ${t.question}\nA: ${t.answer}`)
       .join('\n\n');
+
+    const speechBlock = speech
+      ? `\n## 발화 분석 (음성 답변 ${speech.count}개 전달력)\n- 평균 말 속도: ${speech.avgWpm} WPM (대략 90 미만=느림, 90~150=적정, 150 초과=빠름)\n- 더듬·추임새(음/어/그 등) 합계: ${speech.fillers}회\n- 멈칫(긴 침묵) 합계: ${speech.pauses}회\n`
+      : '';
 
     return `당신은 한국어 모의면접의 **면접관 패널**입니다. 아래 전체 면접 기록을 바탕으로 최종 총평 리포트를 작성하세요.
 
@@ -557,11 +626,11 @@ ${ctx.evaluationSnippet || '(없음)'}
 
 ## 전체 Q&A 와 문항 점수
 ${qa}
-
+${speechBlock}
 지침:
 1. overallScore: 100점 만점 종합 점수.
 2. recommendation: '강력추천'|'추천'|'보류'|'비추천' 중 하나.
 3. interviewerReviews: lead/tech/hr 각자 관점의 총평 + 강점/우려.
-4. overallSummary: 지원자에게 주는 종합 총평 3~5문장. 모두 한국어.`;
+4. overallSummary: 지원자에게 주는 종합 총평 3~5문장. 모두 한국어.${speech ? ' 위 **발화 분석(말 속도·더듬·멈칫)** 즉 전달력에 대한 코멘트를 overallSummary 에 반드시 한 문장 이상 포함하고, 필요하면 concerns 에도 반영하세요.' : ''}`;
   }
 }
