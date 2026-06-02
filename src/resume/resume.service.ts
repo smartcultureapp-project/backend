@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { generateText, tool, type LanguageModel } from 'ai-v5';
+import { generateText, type LanguageModel, tool } from 'ai-v5';
 import { z } from 'zod';
 import { getAgentModel } from '../agent/model-provider';
 import { PrismaService } from '../prisma/prisma.service';
@@ -113,15 +113,15 @@ export class ResumeService {
         // OpenRouter→Anthropic 은 json_schema response_format 미지원 → 강제 tool 콜로 구조화 출력
         const { toolCalls } = await generateText({
           model: getAgentModel() as LanguageModel,
-          tools: {
-            saveResumeSummary: tool({
-              description: '분석한 이력서 요약을 구조화해 반환한다',
-              // z3|z4 동시 추론(TS2589) 회피
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              inputSchema: ResumeSummarySchema as any,
-            }),
+          tools: { saveResumeSummary: tool({
+            description: '분석한 이력서 요약을 구조화해 반환한다',
+            // z3|z4 동시 추론(TS2589) 회피
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            inputSchema: ResumeSummarySchema as any,
+          }) },
+          toolChoice: {
+            type: 'tool', toolName: 'saveResumeSummary',
           },
-          toolChoice: { type: 'tool', toolName: 'saveResumeSummary' },
           prompt: `다음 이력서/자기소개서를 분석해 구조화 요약을 만들어라. 이력서에 명시된 정보만 사용하고, 한국어로 작성한다.\n\n---\n${rawText}\n---`,
         });
 

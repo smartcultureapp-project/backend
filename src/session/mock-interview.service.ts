@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { generateText, tool, type LanguageModel } from 'ai-v5';
+import { generateText, type LanguageModel, tool } from 'ai-v5';
 import { z } from 'zod';
 import { getAgentModel } from '../agent/model-provider';
 import type { CompanyAnalysis, Session } from '../generated/prisma/client';
@@ -22,15 +22,49 @@ interface LoadedInterviewContext {
 
 const QuestionSchema = z.object({ question: z.string().describe('면접관이 물을 한 가지 질문 (한국어)') });
 
+/** 답변마다 평가하는 5개 역량 축 (레이더 차트용). 각 1~5점. */
+const CategoryScoresSchema = z.object({
+  jobUnderstanding: z.number().int()
+    .min(1)
+    .max(5)
+    .describe('직무 이해도 (1~5)'),
+  technicalSkill: z.number().int()
+    .min(1)
+    .max(5)
+    .describe('기술/전문 역량 (1~5)'),
+  communication: z.number().int()
+    .min(1)
+    .max(5)
+    .describe('의사 전달력 (1~5)'),
+  problemSolving: z.number().int()
+    .min(1)
+    .max(5)
+    .describe('문제 해결력 (1~5)'),
+  companyFit: z.number().int()
+    .min(1)
+    .max(5)
+    .describe('회사 적합성 (1~5)'),
+});
+
 const EvaluationSchema = z.object({
   score: z.number().int()
     .min(1)
     .max(5)
-    .describe('1~5 점수'),
+    .describe('1~5 종합 점수'),
+  categoryScores:  CategoryScoresSchema.describe('역량별 세부 점수'),
   feedbackGood:    z.string().describe('답변의 좋은 점'),
   feedbackImprove: z.string().describe('보완하면 좋을 점'),
   betterAnswer:    z.string().describe('더 나은 답변 예시 (한국어)'),
 });
+
+/** 프론트 레이더 차트 라벨 매핑용 — 역량 키 ↔ 한국어 라벨 (참고용 상수) */
+export const CATEGORY_LABELS: Record<keyof typeof CategoryScoresSchema.shape, string> = {
+  jobUnderstanding: '직무이해',
+  technicalSkill:   '기술역량',
+  communication:    '의사소통',
+  problemSolving:   '문제해결',
+  companyFit:       '회사적합성',
+};
 
 const MAX_CONTEXT = 14_000;
 const MAX_RESUME  = 12_000;
@@ -44,15 +78,15 @@ const MAX_RESUME  = 12_000;
 async function generateStructured<T>(schema: z.ZodType<T>, prompt: string): Promise<T> {
   const { toolCalls } = await generateText({
     model: getAgentModel() as LanguageModel,
-    tools: {
-      respond: tool({
-        description: '결과를 구조화된 형식으로 반환한다',
-        // z3|z4 동시 추론 차단 (런타임 동일) — 결과 타입은 schema<T> 로 보장
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        inputSchema: schema as any,
-      }),
+    tools: { respond: tool({
+      description: '결과를 구조화된 형식으로 반환한다',
+      // z3|z4 동시 추론 차단 (런타임 동일) — 결과 타입은 schema<T> 로 보장
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      inputSchema: schema as any,
+    }) },
+    toolChoice: {
+      type: 'tool', toolName: 'respond',
     },
-    toolChoice: { type: 'tool', toolName: 'respond' },
     prompt,
   });
 
@@ -150,8 +184,15 @@ export class MockInterviewService {
       const updated = await this.prisma.interviewTurn.update({
         where: { id: pending.id },
         data:  {
-          answer:          dto.answer,
-          score:           3,
+          answer:         dto.answer,
+          score:          3,
+          categoryScores: {
+            jobUnderstanding: 3,
+            technicalSkill:   3,
+            communication:    3,
+            problemSolving:   3,
+            companyFit:       3,
+          },
           feedbackGood:    '모의 모드: 구체적으로 말한 점이 좋습니다.',
           feedbackImprove: '실제 서비스에서는 회사·직무에 맞춘 피드백이 생성됩니다.',
           betterAnswer:    '지원 동기 + 본인 경험을 회사 맥락과 연결해 말하는 예시 답변입니다.',
@@ -161,6 +202,7 @@ export class MockInterviewService {
       return {
         turnId:          updated.id,
         score:           updated.score,
+        categoryScores:  updated.categoryScores,
         feedbackGood:    updated.feedbackGood,
         feedbackImprove: updated.feedbackImprove,
         betterAnswer:    updated.betterAnswer,
@@ -176,6 +218,7 @@ export class MockInterviewService {
       data:  {
         answer:          dto.answer,
         score:           object.score,
+        categoryScores:  object.categoryScores,
         feedbackGood:    object.feedbackGood,
         feedbackImprove: object.feedbackImprove,
         betterAnswer:    object.betterAnswer,
@@ -187,6 +230,7 @@ export class MockInterviewService {
     return {
       turnId:          updated.id,
       score:           updated.score,
+      categoryScores:  updated.categoryScores,
       feedbackGood:    updated.feedbackGood,
       feedbackImprove: updated.feedbackImprove,
       betterAnswer:    updated.betterAnswer,
@@ -302,6 +346,14 @@ ${question}
 
 ## 지원자 답변
 ${answer}
+
+## 평가 항목
+종합 점수(score)와 함께 아래 5개 역량을 각각 1~5점으로 채점하세요(categoryScores):
+- jobUnderstanding(직무이해): 직무·역할에 대한 이해도
+- technicalSkill(기술역량): 기술/전문 지식의 깊이와 정확성
+- communication(의사소통): 답변의 명확성·전달력·구조
+- problemSolving(문제해결): 논리 전개와 문제 해결 접근
+- companyFit(회사적합성): 회사 인재상·가치와의 부합도
 
 점수 기준: 1=매우 부족, 3=보통, 5=매우 좋음. 한국어로 작성하세요.`;
   }
