@@ -18,8 +18,17 @@ async function bootstrap() {
     }
   }
 
-  if (!isMockMode && !process.env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY 환경변수가 필요합니다. (테스트: MOCK_ANALYSIS=true)');
+  if (!isMockMode) {
+    const llmProvider = process.env.LLM_PROVIDER ?? 'openrouter';
+    const requiredKey = {
+      openrouter: 'OPENROUTER_API_KEY',
+      openai:     'OPENAI_API_KEY',
+      google:     'GOOGLE_GENERATIVE_AI_API_KEY',
+    }[llmProvider] ?? 'OPENROUTER_API_KEY';
+
+    if (!process.env[requiredKey]) {
+      throw new Error(`${requiredKey} 환경변수가 필요합니다 (LLM_PROVIDER=${llmProvider}, 테스트: MOCK_ANALYSIS=true)`);
+    }
   }
 
   if (!process.env.DATABASE_URL) {

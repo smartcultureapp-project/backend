@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Response } from 'express';
-import { createAnalysisAgent } from '../agent/interview.agent';
 import { agentRunOptions } from '../agent/agent-run-options';
+import { createAnalysisAgent } from '../agent/interview.agent';
 import { CompanyService } from '../company/company.service';
 import { generateTemplateFromAnalysis } from '../evaluation/evaluation-template-generator';
 import { PrismaService } from '../prisma/prisma.service';
@@ -17,10 +17,23 @@ interface ToolResult {
   result?:  unknown;
 }
 
+// onStepFinish 가 넘기는 항목의 원본 형태(포맷별로 다름):
+// - Mastra('mastra' 포맷, generateVNext 기본): { type, payload: { toolName, args, result } }
+// - AI SDK v5('aisdk' 포맷):                    { toolName, input, output }
+// - 레거시(generate):                            { toolName, args, result }
+interface RawToolItem {
+  toolName?: string;
+  args?:     Record<string, unknown>;
+  input?:    Record<string, unknown>;
+  result?:   unknown;
+  output?:   unknown;
+  payload?:  RawToolItem;
+}
+
 interface StepPayload {
   stepNumber?:  number;
-  toolCalls?:   ToolCall[];
-  toolResults?: ToolResult[];
+  toolCalls?:   RawToolItem[];
+  toolResults?: RawToolItem[];
 }
 
 type SseEvent =
@@ -71,6 +84,26 @@ type SseEvent =
   };
 
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 1개월
+
+/** onStepFinish 항목을 포맷에 무관하게 { toolName, args } 로 평탄화 */
+function normalizeToolCall(item: RawToolItem): ToolCall {
+  const p = item?.payload ?? item;
+
+  return {
+    toolName: p?.toolName ?? '',
+    args:     p?.args ?? p?.input,
+  };
+}
+
+/** onStepFinish 항목을 포맷에 무관하게 { toolName, result } 로 평탄화 */
+function normalizeToolResult(item: RawToolItem | undefined): ToolResult {
+  const p = item?.payload ?? item;
+
+  return {
+    toolName: p?.toolName ?? '',
+    result:   p?.result ?? p?.output,
+  };
+}
 
 @Injectable()
 export class AnalysisService {
@@ -141,7 +174,7 @@ export class AnalysisService {
 
       await agent.generateVNext(`회사명: ${companyName}\n지원 직군: ${dto.jobRole}\n추가 정보: ${dto.additionalInfo || '없음'}\n\n위 정보를 바탕으로 company-analysis.md의 **딥리서치** 지침에 따라\n1라운드 기초 조사 → 2라운드 갭 분석 및 심화 검색 → (필요시) 3라운드 보완까지 수행한 뒤,\n수집한 모든 정보를 save_analysis 툴로 저장하세요.`,
         agentRunOptions(60, async step => {
-          await this.handleStep(step as StepPayload, sessionId, send);
+          await this.handleStep(step as unknown as StepPayload, sessionId, send);
         }));
 
       this.logger.log('Agent generateVNext() 완료');
@@ -250,13 +283,17 @@ export class AnalysisService {
       toolResults = [],
     } = step;
 
-    if (toolCalls.length > 0) {
-      this.logger.log(`[Step ${stepNumber ?? '?'}] 툴 ${toolCalls.length}건 실행`);
+    // 포맷에 따라 데이터가 .payload 아래 중첩될 수 있어 평탄화해서 읽는다.
+    const calls   = toolCalls.map(c => normalizeToolCall(c));
+    const results = toolResults.map(r => normalizeToolResult(r));
+
+    if (calls.length > 0) {
+      this.logger.log(`[Step ${stepNumber ?? '?'}] 툴 ${calls.length}건: ${calls.map(c => c.toolName || '?').join(', ')}`);
     }
 
-    for (let i = 0; i < toolCalls.length; i++) {
-      const call   = toolCalls[i];
-      const result = toolResults[i];
+    for (let i = 0; i < calls.length; i++) {
+      const call   = calls[i];
+      const result = results[i];
 
       switch (call?.toolName) {
         case 'web_search':

@@ -4,9 +4,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { generateObject } from 'ai';
+import { generateText, tool, type LanguageModel } from 'ai-v5';
 import { z } from 'zod';
-import { getAgentModel, toMastraAgentModel } from '../agent/model-provider';
+import { getAgentModel } from '../agent/model-provider';
 import type { CompanyAnalysis, Session } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { SubmitInterviewAnswerDto } from './dto/submit-interview-answer.dto';
@@ -34,6 +34,36 @@ const EvaluationSchema = z.object({
 
 const MAX_CONTEXT = 14_000;
 const MAX_RESUME  = 12_000;
+
+/**
+ * ai-v5 `generateObject` 는 항상 `responseFormat: json` 으로 호출하는데, OpenRouter→Anthropic
+ * 은 json_schema response_format 을 무시하고 평문을 반환 → 파싱 실패한다.
+ * 그래서 강제 tool 콜(`toolChoice: respond`)로 구조화 출력을 받아 그 input 을 결과로 쓴다.
+ * 스키마 제네릭 추론(z3|z4 → TS2589)도 여기서 한 번만 끊는다.
+ */
+async function generateStructured<T>(schema: z.ZodType<T>, prompt: string): Promise<T> {
+  const { toolCalls } = await generateText({
+    model: getAgentModel() as LanguageModel,
+    tools: {
+      respond: tool({
+        description: '결과를 구조화된 형식으로 반환한다',
+        // z3|z4 동시 추론 차단 (런타임 동일) — 결과 타입은 schema<T> 로 보장
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        inputSchema: schema as any,
+      }),
+    },
+    toolChoice: { type: 'tool', toolName: 'respond' },
+    prompt,
+  });
+
+  const call = toolCalls[0];
+
+  if (!call) {
+    throw new Error('구조화 출력 생성 실패: 모델이 tool 을 호출하지 않았습니다.');
+  }
+
+  return call.input as T;
+}
 
 @Injectable()
 export class MockInterviewService {
@@ -78,11 +108,7 @@ export class MockInterviewService {
 
     const prompt = this.buildQuestionPrompt(ctx, asked, nextIndex);
 
-    const { object } = await generateObject({
-      model:  toMastraAgentModel(getAgentModel()),
-      schema: QuestionSchema,
-      prompt,
-    });
+    const object = await generateStructured(QuestionSchema, prompt);
 
     const turn = await this.prisma.interviewTurn.create({ data: {
       sessionId,
@@ -143,11 +169,7 @@ export class MockInterviewService {
 
     const prompt = this.buildEvaluationPrompt(ctx, pending.question, dto.answer);
 
-    const { object } = await generateObject({
-      model:  toMastraAgentModel(getAgentModel()),
-      schema: EvaluationSchema,
-      prompt,
-    });
+    const object = await generateStructured(EvaluationSchema, prompt);
 
     const updated = await this.prisma.interviewTurn.update({
       where: { id: pending.id },
