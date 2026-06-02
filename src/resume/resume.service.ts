@@ -1,7 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { generateText, type LanguageModel, tool } from 'ai-v5';
 import { z } from 'zod';
-import { getAgentModel } from '../agent/model-provider';
+import { generateStructured } from '../agent/generate-structured';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateResumeDto } from './dto/create-resume.dto';
 
@@ -25,16 +24,31 @@ const ResumeSummarySchema = z.object({
   interviewFocus: z.array(z.string()),
 });
 
+/** 저장된 summary 가 정상 구조(객체 + profile)인지 — 깨진 문자열/누락 판별 */
+function isValidSummary(summary: unknown): boolean {
+  return (
+    !!summary &&
+    typeof summary === 'object' &&
+    'profile' in (summary as Record<string, unknown>)
+  );
+}
+
 @Injectable()
 export class ResumeService {
   private readonly logger = new Logger(ResumeService.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
+  // fileData(base64)는 용량이 커서 일반 조회에선 제외하고, 전용 엔드포인트로만 내려준다.
+  private static readonly OMIT_FILE = { fileData: true } as const;
+
   async create(userId: string, dto: CreateResumeDto) {
     const row = await this.prisma.resumeAnalysis.create({ data: {
       userId,
-      rawText: dto.rawText,
+      rawText:  dto.rawText,
+      fileName: dto.fileName ?? null,
+      fileType: dto.fileType ?? null,
+      fileData: dto.fileData ?? null,
     } });
     const { id } = row;
 
@@ -49,29 +63,67 @@ export class ResumeService {
 
       await this.prisma.session.update({
         where: { id: dto.sessionId },
-        data:  { resumeAnalysisId: id },
+        // 새 이력서가 붙으면 기존 맞춤 예상 질문 캐시를 비워 재생성되게 한다
+        data:  {
+          resumeAnalysisId: id, expectedQuestions: null,
+        },
       });
     }
 
     this.analyzeInBackground(id, dto.rawText);
 
-    return this.prisma.resumeAnalysis.findUniqueOrThrow({ where: { id } });
+    return this.prisma.resumeAnalysis.findUniqueOrThrow({
+      where: { id }, omit: ResumeService.OMIT_FILE,
+    });
   }
 
   async findAllForUser(userId: string) {
     return this.prisma.resumeAnalysis.findMany({
       where:   { userId },
       orderBy: { updatedAt: 'desc' },
+      omit:    ResumeService.OMIT_FILE,
     });
   }
 
   async findOneForUser(id: string, userId: string) {
-    const row = await this.prisma.resumeAnalysis.findFirst({ where: {
-      id, userId,
-    } });
+    const row = await this.prisma.resumeAnalysis.findFirst({
+      where: {
+        id, userId,
+      },
+      omit: ResumeService.OMIT_FILE,
+    });
 
     if (!row) {
       throw new NotFoundException(`ResumeAnalysis(${id})를 찾을 수 없습니다`);
+    }
+
+    return row;
+  }
+
+  /** 원본 파일(base64) 단건 — 전용 다운로드 엔드포인트용 */
+  async getFile(id: string, userId: string) {
+    const row = await this.prisma.resumeAnalysis.findFirst({
+      where: {
+        id, userId,
+      },
+      select: {
+        fileName: true, fileType: true, fileData: true,
+      },
+    });
+
+    if (!row?.fileData) {
+      throw new NotFoundException('저장된 원본 파일이 없습니다.');
+    }
+
+    return row;
+  }
+
+  /** 요약이 비었거나 깨진(과거 XML 누출로 문자열 저장된) 이력서의 재분석을 트리거한다. */
+  async reanalyze(id: string, userId: string) {
+    const row = await this.findOneForUser(id, userId);
+
+    if (!isValidSummary(row.summary)) {
+      this.analyzeInBackground(row.id, row.rawText);
     }
 
     return row;
@@ -110,30 +162,13 @@ export class ResumeService {
       try {
         this.logger.log(`이력서 분석 시작: ${resumeAnalysisId}`);
 
-        // OpenRouter→Anthropic 은 json_schema response_format 미지원 → 강제 tool 콜로 구조화 출력
-        const { toolCalls } = await generateText({
-          model: getAgentModel() as LanguageModel,
-          tools: { saveResumeSummary: tool({
-            description: '분석한 이력서 요약을 구조화해 반환한다',
-            // z3|z4 동시 추론(TS2589) 회피
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            inputSchema: ResumeSummarySchema as any,
-          }) },
-          toolChoice: {
-            type: 'tool', toolName: 'saveResumeSummary',
-          },
-          prompt: `다음 이력서/자기소개서를 분석해 구조화 요약을 만들어라. 이력서에 명시된 정보만 사용하고, 한국어로 작성한다.\n\n---\n${rawText}\n---`,
-        });
-
-        const object = toolCalls[0]?.input;
-
-        if (!object) {
-          throw new Error('이력서 요약 생성 실패: 모델이 tool 을 호출하지 않았습니다.');
-        }
+        // 재시도+정화+Zod 검증으로 견고화된 구조화 출력 (claude XML 누출 대비)
+        const summary = await generateStructured(ResumeSummarySchema,
+          `다음 이력서/자기소개서를 분석해 구조화 요약을 만들어라. 이력서에 명시된 정보만 사용하고, 한국어로 작성한다.\n\n---\n${rawText}\n---`);
 
         await this.prisma.resumeAnalysis.update({
           where: { id: resumeAnalysisId },
-          data:  { summary: object },
+          data:  { summary },
         });
 
         this.logger.log(`이력서 요약 저장 완료: ${resumeAnalysisId}`);

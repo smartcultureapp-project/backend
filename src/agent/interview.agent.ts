@@ -7,6 +7,7 @@ import { fetchPageTool } from './tools/fetch-page.tool';
 import { createSaveAnalysisTool } from './tools/save-analysis.tool';
 import { webSearchTool } from './tools/web-search.tool';
 
+// 반환 타입을 base Agent 로 명시 — tools 제네릭 깊은 추론(TS2589) 차단
 export function createAnalysisAgent(
   prismaService: PrismaService,
   sessionId: string,
@@ -14,7 +15,7 @@ export function createAnalysisAgent(
   jobRole: string,
   additionalInfo?: string,
   companyId?: string,
-) {
+): Agent {
   const skillsPath = join(__dirname, '..', 'skills', 'company-analysis.md');
   const skills = readFileSync(skillsPath, 'utf-8');
 

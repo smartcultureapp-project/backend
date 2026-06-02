@@ -37,6 +37,11 @@ async function bootstrap() {
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   app.useLogger(app.get(PinoLogger));
+  // 이력서 원본 파일(base64)을 본문에 담아 보내므로 기본 100kb 한도를 올린다.
+  app.useBodyParser('json', { limit: '25mb' });
+  app.useBodyParser('urlencoded', {
+    limit: '25mb', extended: true,
+  });
   app.setGlobalPrefix('api');
   app.enableCors({ origin: true });
   app.useStaticAssets(join(__dirname, '..', 'public'));
@@ -48,8 +53,9 @@ async function bootstrap() {
     logger.log('API 문서: Scalar /api/docs/scalar · Swagger /api/docs/swagger');
   }
 
-  await app.listen(process.env.PORT ?? 3000);
-  logger.log('서버 실행: http://localhost:3000');
+  const port = process.env.PORT ?? 3000;
+  await app.listen(port);
+  logger.log(`서버 실행: http://localhost:${port}`);
 
   if (isMockMode) {
     logger.warn('MOCK_ANALYSIS=true — API 키 없이 테스트 모드');

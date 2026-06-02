@@ -5,6 +5,7 @@ import {
   Param,
   Post,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -16,7 +17,7 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { AuthGuard } from '../auth/auth.guard';
 import { ResumeAnalysisResponseDto } from '../docs/response-schemas';
 import { CreateResumeDto } from './dto/create-resume.dto';
@@ -67,5 +68,40 @@ export class ResumeController {
   })
   async getOne(@Param('id') id: string, @Req() req: Request) {
     return this.resumeService.findOneForUser(id, req.user!.sub);
+  }
+
+  @Post(':id/reanalyze')
+  @ApiOperation({
+    summary:     '이력서 재분석',
+    description: '요약이 비어있는 이력서의 AI 요약 분석을 다시 트리거합니다.',
+  })
+  @ApiParam({
+    name: 'id', description: 'ResumeAnalysis ID',
+  })
+  @ApiOkResponse({
+    description: 'ResumeAnalysis 레코드', type: ResumeAnalysisResponseDto,
+  })
+  async reanalyze(@Param('id') id: string, @Req() req: Request) {
+    return this.resumeService.reanalyze(id, req.user!.sub);
+  }
+
+  @Get(':id/file')
+  @ApiOperation({
+    summary:     '이력서 원본 파일 다운로드',
+    description: '등록 시 저장한 원본 이력서 파일을 반환합니다.',
+  })
+  @ApiParam({
+    name: 'id', description: 'ResumeAnalysis ID',
+  })
+  async getFile(@Param('id') id: string,
+    @Req() req: Request,
+    @Res() res: Response) {
+    const file = await this.resumeService.getFile(id, req.user!.sub);
+    const buffer = Buffer.from(file.fileData!, 'base64');
+    const name = encodeURIComponent(file.fileName ?? 'resume');
+
+    res.setHeader('Content-Type', file.fileType ?? 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${name}`);
+    res.send(buffer);
   }
 }

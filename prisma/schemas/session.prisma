@@ -8,6 +8,8 @@ model Session {
   companyAnalysisId   String?
   resumeAnalysisId    String?
   evaluationSheetId   String?
+  finalReport         Json?
+  expectedQuestions   Json?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

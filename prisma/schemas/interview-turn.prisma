@@ -2,12 +2,16 @@ model InterviewTurn {
   id              String   @id @default(nanoid())
   sessionId       String
   question        String?
+  questionType    String?
+  interviewerId   String?
+  discussion      Json?
   answer          String?
   score           Int?
   feedbackGood    String?
   feedbackImprove String?
   betterAnswer    String?
   categoryScores  Json?
+  scoreBreakdown  Json?
   turnIndex       Int?
   createdAt       DateTime @default(now())
 

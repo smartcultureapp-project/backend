@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -115,6 +116,32 @@ export class SessionController {
     @Body() dto: SubmitInterviewAnswerDto,
     @Req() req: Request) {
     return this.mockInterviewService.submitAnswer(id, req.user!.sub, dto);
+  }
+
+  @Post(':id/interview/report')
+  @ApiOperation({
+    summary:     '최종 면접 리포트 생성',
+    description: '면접 종료 후 면접관 패널의 채점·총평 리포트를 생성·저장·반환합니다.',
+  })
+  @ApiParam({
+    name: 'id', description: 'Session ID',
+  })
+  async generateInterviewReport(@Param('id') id: string, @Req() req: Request) {
+    return this.mockInterviewService.finalReport(id, req.user!.sub);
+  }
+
+  @Get(':id/expected-questions')
+  @ApiOperation({
+    summary:     '맞춤 예상 질문',
+    description: '지원자 이력서 + 회사 분석을 합쳐 만든 맞춤 예상 질문을 반환합니다(캐시, refresh=true 로 재생성).',
+  })
+  @ApiParam({
+    name: 'id', description: 'Session ID',
+  })
+  async expectedQuestions(@Param('id') id: string,
+    @Query('refresh') refresh: string | undefined,
+    @Req() req: Request) {
+    return this.mockInterviewService.expectedQuestions(id, req.user!.sub, refresh === 'true');
   }
 
   @Get(':id')
