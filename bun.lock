@@ -8,6 +8,7 @@
         "@ai-sdk/openai": "^2.0.106",
         "@ai-sdk/provider": "^2.0.3",
         "@ai-sdk/provider-utils": "^3.0.25",
+        "@deepgram/sdk": "^5.4.0",
         "@mastra/core": "^0.14.1",
         "@mendable/firecrawl-js": "^4.18.0",
         "@nestjs/common": "^10.4.22",
@@ -170,6 +171,8 @@
     "@cspotcode/source-map-support": ["@cspotcode/source-map-support@0.8.1", "", { "dependencies": { "@jridgewell/trace-mapping": "0.3.9" } }, "sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw=="],
 
     "@darraghor/eslint-plugin-nestjs-typed": ["@darraghor/eslint-plugin-nestjs-typed@7.1.27", "", { "dependencies": { "@typescript-eslint/scope-manager": "^8.56.0", "@typescript-eslint/type-utils": "^8.56.0", "@typescript-eslint/utils": "^8.56.0", "eslint-module-utils": "2.12.1", "glob": "13.0.0", "reflect-metadata": "0.2.2", "ts-api-utils": "2.4.0" }, "peerDependencies": { "@typescript-eslint/parser": "^7.0.0 || ^8.0.0", "class-validator": "*", "eslint": ">=9.18.0" } }, "sha512-/sekkUgj7LTOaEzIU6zh2B12pFis4JS5VB7uOJMK7GRIr692o0xZ9aD0FgYuTz1G4oMPiAHhlRXRn/VuZMCwog=="],
+
+    "@deepgram/sdk": ["@deepgram/sdk@5.4.0", "", { "dependencies": { "ws": "^8.20.0" } }, "sha512-Xm0lB38VcyJgsXbABhhZWKXJN8jnAVk35YP186Qxiqbfz8GP4wgSEugoovWRhdMeKrbRhN7IVrcbHElVTNSHVw=="],
 
     "@electric-sql/pglite": ["@electric-sql/pglite@0.4.1", "", {}, "sha512-mZ9NzzUSYPOCnxHH1oAHPRzoMFJHY472raDKwXl/+6oPbpdJ7g8LsCN4FSaIIfkiCKHhb3iF/Zqo3NYxaIhU7Q=="],
 
@@ -2232,6 +2235,8 @@
     "wrappy": ["wrappy@1.0.2", "", {}, "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ=="],
 
     "write-file-atomic": ["write-file-atomic@4.0.2", "", { "dependencies": { "imurmurhash": "0.1.4", "signal-exit": "3.0.7" } }, "sha512-7KxauUdBmSdWnmpaGFg+ppNjKF8uNLry8LyzjauQDOVONfFLNKrKvQOxZ/VuTIcS/gge/YNahf5RIIQWTSarlg=="],
+
+    "ws": ["ws@8.21.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="],
 
     "xstate": ["xstate@5.28.0", "", {}, "sha512-Iaqq6ZrUzqeUtA3hC5LQKZfR8ZLzEFTImMHJM3jWEdVvXWdKvvVLXZEiNQWm3SCA9ZbEou/n5rcsna1wb9t28A=="],
 

@@ -12,6 +12,7 @@ model InterviewTurn {
   betterAnswer    String?
   categoryScores  Json?
   scoreBreakdown  Json?
+  speechMetrics   Json?
   turnIndex       Int?
   createdAt       DateTime @default(now())
 

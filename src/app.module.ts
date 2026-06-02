@@ -13,6 +13,7 @@ import { EvaluationModule } from './evaluation/evaluation.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ResumeModule } from './resume/resume.module';
 import { SessionModule } from './session/session.module';
+import { SttModule } from './stt/stt.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { SessionModule } from './session/session.module';
     AnalysisModule,
     SessionModule,
     ResumeModule,
+    SttModule,
   ],
   controllers: [AppController],
   providers:   [
