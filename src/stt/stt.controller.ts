@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Post,
   UploadedFile,
   UseGuards,
@@ -25,6 +26,15 @@ interface UploadedAudio {
 @Controller('stt')
 export class SttController {
   constructor(private readonly sttService: SttService) {}
+
+  @Get('token')
+  @ApiOperation({
+    summary:     '실시간 STT 단기 토큰',
+    description: '브라우저가 Deepgram 실시간 WebSocket 에 직결할 때 쓰는 단기 토큰을 발급합니다.',
+  })
+  async token() {
+    return this.sttService.grantToken();
+  }
 
   @Post()
   @ApiOperation({

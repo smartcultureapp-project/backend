@@ -24,6 +24,19 @@ export class SttService {
     ? new DeepgramClient({ apiKey: process.env.DEEPGRAM_API_KEY })
     : null;
 
+  /** 실시간 스트리밍용 단기 토큰(브라우저가 Deepgram WS 직결 시 사용). 키 노출 방지. */
+  async grantToken() {
+    if (!this.client) {
+      throw new ServiceUnavailableException('DEEPGRAM_API_KEY 가 설정되지 않았습니다.');
+    }
+
+    const res = await this.client.auth.v1.tokens.grant({ ttl_seconds: 60 });
+
+    return {
+      accessToken: res.access_token, expiresIn: res.expires_in ?? 60,
+    };
+  }
+
   async transcribe(audio: Buffer): Promise<SpeechMetrics> {
     if (!this.client) {
       throw new ServiceUnavailableException('DEEPGRAM_API_KEY 가 설정되지 않았습니다.');
