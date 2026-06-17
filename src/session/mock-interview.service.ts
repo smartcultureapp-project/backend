@@ -146,6 +146,30 @@ function aggregateSpeech(turns: {
   };
 }
 
+/** 맞춤 질문 생성 실패 시 회사 분석의 기출/추천 각도로 만드는 폴백 질문. */
+function companyFallbackQuestions(company: CompanyAnalysis | null): {
+  category: string; text: string; basis: string;
+}[] {
+  const actual = (company?.actualQuestions as string[] | null | undefined) ?? [];
+  const angles = (company?.recommendedQuestionAngles as string[] | null | undefined) ?? [];
+  const qs = [
+    ...actual.map(text => ({
+      category: '기출', text, basis: '회사 실제 면접 기출',
+    })),
+    ...angles.map(text => ({
+      category: '추천', text, basis: '회사 분석 추천 각도',
+    })),
+  ];
+
+  return qs.length
+    ? qs
+    : [
+      {
+        category: '회사', text: '지원 동기와 우리 회사에 기여할 수 있는 점을 말씀해 주세요.', basis: '기본 질문',
+      },
+    ];
+}
+
 @Injectable()
 export class MockInterviewService {
   private readonly logger = new Logger(MockInterviewService.name);
@@ -167,6 +191,9 @@ export class MockInterviewService {
 
     const nextIndex = existing.reduce((m, t) => Math.max(m, t.turnIndex ?? 0), -1) + 1;
     const asked     = existing.map(t => t.question).filter(Boolean) as string[];
+    const history   = existing
+      .filter(t => t.question && t.answer)
+      .map(t => ({ question: t.question as string, answer: t.answer as string }));
 
     if (process.env.MOCK_ANALYSIS === 'true') {
       const interviewerId = INTERVIEWER_IDS[nextIndex % INTERVIEWER_IDS.length];
@@ -219,7 +246,7 @@ export class MockInterviewService {
         },
       ];
     } else {
-      const prompt = this.buildPanelQuestionPrompt(ctx, asked, nextIndex);
+      const prompt = this.buildPanelQuestionPrompt(ctx, asked, nextIndex, history);
       const object = await generateStructured(PanelQuestionSchema, prompt);
 
       interviewerId = INTERVIEWER_IDS.includes(object.interviewerId)
@@ -416,15 +443,33 @@ export class MockInterviewService {
     }
 
     const hasResume = !!(ctx.resumeSummaryText || ctx.resumeSnippet);
-    const prompt = this.buildExpectedQuestionsPrompt(ctx, hasResume);
-    const result = await generateStructured(ExpectedQuestionsSchema, prompt);
+
+    // 생성이 실패해도 회사 기출로 폴백한 결과를 캐시한다 → 다음 방문부터 재생성 안 함
+    let result: {
+      questions: {
+        category: string; text: string; basis: string;
+      }[];
+    };
+
+    try {
+      const prompt = this.buildExpectedQuestionsPrompt(ctx, hasResume);
+      const raw = await generateStructured(ExpectedQuestionsSchema, prompt);
+      result = { questions: (raw.questions ?? []).map(q => ({
+        category: q.category ?? '회사',
+        text:     q.text ?? '',
+        basis:    q.basis ?? '',
+      })) };
+    } catch (err) {
+      this.logger.warn(`맞춤 질문 생성 실패 → 회사 기출 폴백: ${err instanceof Error ? err.message : err}`);
+      result = { questions: companyFallbackQuestions(ctx.companyAnalysis) };
+    }
 
     await this.prisma.session.update({
       where: { id: sessionId },
       data:  { expectedQuestions: result },
     });
 
-    this.logger.log(`맞춤 예상 질문 생성 session=${sessionId} n=${result.questions.length} resume=${hasResume}`);
+    this.logger.log(`맞춤 예상 질문 캐시 session=${sessionId} n=${result.questions.length} resume=${hasResume}`);
 
     return result;
   }
@@ -527,13 +572,33 @@ ${ctx.resumeSnippet || '(없음)'}
 
   private buildPanelQuestionPrompt(ctx: LoadedInterviewContext,
     alreadyAsked: string[],
-    turnIndex: number) {
+    turnIndex: number,
+    history: { question: string; answer: string }[] = []) {
     const hasResume = !!(ctx.resumeSummaryText || ctx.resumeSnippet);
     const askedBlock = alreadyAsked.length
-      ? `이미 나온 질문 (반복 금지):\n${alreadyAsked.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
+      ? `이미 나온 질문 (그대로 반복 금지):\n${alreadyAsked.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
       : '(아직 질문 없음 — 첫 질문은 주면접관(lead)이 자기소개/지원동기로 시작)';
 
-    return `당신은 한국어 모의면접의 **면접관 패널 전체**를 연기합니다. 아래 면접관 3명이 서로 짧게 상의(discussion)한 뒤, 그중 가장 적합한 한 명이 지원자에게 **질문 하나**를 던집니다.
+    // 답변을 너무 길게 넣지 않도록 턴당 절단, 최근 흐름 위주로만 전달
+    const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
+    const lastTurn = history.length ? history[history.length - 1] : null;
+
+    // 직전 답변은 꼬리물기의 핵심 대상이므로 별도 블록으로 크게 노출
+    const lastAnswerBlock = lastTurn
+      ? `## 직전 질문과 지원자 답변 (← 이번 질문의 꼬리물기 핵심 대상)
+[직전 질문] ${lastTurn.question}
+[지원자 답변] ${clip(lastTurn.answer, 2_000)}`
+      : '## 직전 답변\n(아직 답변 없음)';
+
+    // 그 이전 흐름은 맥락 파악용으로 압축해서 제공(직전 턴 제외)
+    const priorHistory = history.slice(0, -1).slice(-4);
+    const historyBlock = priorHistory.length
+      ? `## 이전 대화 흐름 (참고)\n${priorHistory
+        .map(h => `Q. ${h.question}\nA. ${clip(h.answer, 400)}`)
+        .join('\n\n')}`
+      : '';
+
+    return `당신은 한국어 모의면접의 **면접관 패널 전체**를 연기합니다. 아래 면접관 3명이 서로 짧게 상의(discussion)한 뒤, 그중 가장 적합한 한 명이 지원자에게 **질문 하나**를 던집니다. 이 면접은 단발성 질문이 아니라, 지원자의 직전 답변을 파고드는 **꼬리물기(follow-up) 면접**입니다.
 
 ## 면접관 패널
 ${panelRoster()}
@@ -555,12 +620,18 @@ ${ctx.resumeSummaryText || '(없음)'}
 ## 지원자 이력서 일부
 ${ctx.resumeSnippet || '(없음)'}
 
+${lastAnswerBlock}
+
+${historyBlock}
+
 ## ${askedBlock}
 
 지침:
-1. discussion: 면접관들이 "직전 답변 흐름상 무엇을 더 봐야 하는지" 2~3개 발언으로 짧게 토론(지원자에게 안 보임).
-2. 그 결론으로 interviewerId(질문할 면접관), questionType(intro/technical/behavioral/culture), question(한 문장 질문)을 정하세요.
-3. 질문은 직무·회사·이력서와 연결되게, 유형이 한쪽에 치우치지 않게 다양화하세요. 기술면접관은 기술 깊이를, 인사담당관은 컬처핏/경험을 파고듭니다.${hasResume ? '\n4. **위 이력서가 제공되었으니, 이력서에 적힌 실제 프로젝트·기술·경험을 직접 파고드는 질문을 적극적으로 던지세요**(예: "이력서의 OO 프로젝트에서 ~을 어떻게 구현/해결하셨나요?"). 전체 질문의 절반 이상이 이력서 내용과 직접 연결되게 하세요.' : ''}`;
+1. discussion: 면접관들이 "직전 답변에서 무엇이 모호하거나 더 깊게 파고들 만한지"를 2~3개 발언으로 짧게 토론(지원자에게 안 보임). 직전 답변에서 검증할 구체적 지점(주장의 근거·수치·기술 선택 이유·트레이드오프·실제 기여도 등)을 짚으세요.
+2. **꼬리물기 우선**: 직전 답변이 있으면, 이번 질문은 원칙적으로 그 답변을 더 깊게 파고드는 후속 질문이어야 합니다. 다음 중 하나로 파고드세요 — (a) 답변 속 구체적 주장/결정의 "왜"와 "어떻게", (b) 답변에서 빠진 근거·수치·결과, (c) 답변이 모호하거나 추상적인 부분의 구체화, (d) 답변에서 드러난 트레이드오프/대안 검토, (e) "그 상황에서 ~했다면 어땠을까" 식의 가정 시나리오. 직전 답변의 핵심 표현을 질문에 인용해 자연스럽게 이어가세요(예: "방금 말씀하신 OO 부분에서, ~").
+3. 단, 직전 답변이 이미 충분히 깊게 다뤄졌거나 주제를 2~3턴 이상 파고들어 더 캘 것이 없다면, 새로운 주제(이력서의 다른 프로젝트·직무 역량·컬처핏)로 전환하세요. 한 주제에 과도하게 머무르지 마세요.
+4. 그 결론으로 interviewerId(질문할 면접관), questionType(intro/technical/behavioral/culture), question(한 문장 질문)을 정하세요. 직전 답변을 던진 면접관이 이어서 파고들거나, 다른 관점의 면접관이 새로 끼어들 수 있습니다.
+5. 질문은 직무·회사·이력서와 연결되게, 유형이 한쪽에 치우치지 않게 다양화하세요. 기술면접관은 기술 깊이를, 인사담당관은 컬처핏/경험을 파고듭니다. 이미 나온 질문과 똑같은 질문은 금지하되, 같은 주제를 더 깊이 파고드는 후속 질문은 허용됩니다.${hasResume ? '\n6. **위 이력서가 제공되었으니, 직전 답변을 파고들 거리가 없을 때는 이력서에 적힌 실제 프로젝트·기술·경험을 직접 파고드는 질문을 던지세요**(예: "이력서의 OO 프로젝트에서 ~을 어떻게 구현/해결하셨나요?").' : ''}`;
   }
 
   private buildPanelEvaluationPrompt(ctx: LoadedInterviewContext,
